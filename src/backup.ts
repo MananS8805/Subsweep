@@ -1,8 +1,8 @@
 import { db } from './db';
-import type { Cycle, DismissedDuplicate, Subscription } from './types';
+import type { CancelStatus, Cycle, DismissedDuplicate, Subscription } from './types';
 
 export const BACKUP_APP = 'subsweep';
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2; // v2 adds the cancel & verify fields; v1 files still restore
 export type ImportMode = 'merge' | 'replace';
 
 export interface Backup {
@@ -33,6 +33,7 @@ export const backupFileName = (d = new Date()) => `subsweep-backup-${d.toISOStri
 // ---- validation ------------------------------------------------------------
 
 const CYCLES: Cycle[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
+const STATUSES: CancelStatus[] = ['active', 'cancelling', 'cancelled'];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isIsoDay = (v: unknown): v is string =>
@@ -74,6 +75,27 @@ function cleanSub(raw: unknown, i: number): Subscription {
     sub.priceHistory = raw.priceHistory.map(h => {
       if (!isObj(h) || typeof h.date !== 'string' || !isNum(h.amount)) throw bad('priceHistory');
       return { date: h.date, amount: h.amount };
+    });
+  }
+  if (raw.status !== undefined) {
+    if (!STATUSES.includes(raw.status as CancelStatus)) throw bad('status');
+    sub.status = raw.status as CancelStatus;
+  }
+  for (const f of ['cancelRequestedAt', 'cancelEffectiveDate', 'verifiedAt'] as const) {
+    if (raw[f] !== undefined) {
+      if (!isIsoDay(raw[f])) throw bad(f);
+      sub[f] = raw[f] as string;
+    }
+  }
+  if (raw.cancelRef !== undefined) {
+    if (typeof raw.cancelRef !== 'string') throw bad('cancelRef');
+    sub.cancelRef = raw.cancelRef;
+  }
+  if (raw.zombieCharges !== undefined) {
+    if (!Array.isArray(raw.zombieCharges)) throw bad('zombieCharges');
+    sub.zombieCharges = raw.zombieCharges.map(c => {
+      if (!isObj(c) || !isIsoDay(c.date) || !isNum(c.amount)) throw bad('zombieCharges');
+      return { date: c.date, amount: c.amount };
     });
   }
   return sub; // unknown extra fields are dropped

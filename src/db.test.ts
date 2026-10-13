@@ -3,6 +3,28 @@ import { describe, it, expect } from 'vitest';
 import Dexie from 'dexie';
 import { SubDB } from './db';
 
+describe('v0.2 -> v0.3 upgrade', () => {
+  it('keeps v2 rows and reads them as active (no cancel fields)', async () => {
+    const name = 'subsweep-upgrade-test-v3';
+    const old = new Dexie(name);
+    old.version(2).stores({ subs: '++id, name, nextRenewal', dismissedDuplicates: '++id, &key', settings: 'key' });
+    await old.table('subs').add({ name: 'Netflix', amount: 15.49, cycle: 'monthly', nextRenewal: '2026-11-03', category: 'Streaming', isTrial: false, createdAt: '2026-01-01T00:00:00.000Z' });
+    await old.table('dismissedDuplicates').add({ key: '1-2' });
+    await old.table('settings').put({ key: 'currency', value: 'USD' });
+    old.close();
+
+    const upgraded = new SubDB(name);
+    const [row] = await upgraded.subs.toArray();
+    expect(row).toMatchObject({ name: 'Netflix', createdAt: '2026-01-01T00:00:00.000Z' });
+    expect(row.status).toBeUndefined();
+    await upgraded.subs.update(row.id!, { status: 'cancelling', cancelEffectiveDate: '2026-11-03' });
+    expect((await upgraded.subs.get(row.id!))?.status).toBe('cancelling');
+    expect(await upgraded.dismissedDuplicates.count()).toBe(1);
+    expect((await upgraded.settings.get('currency'))?.value).toBe('USD');
+    upgraded.close();
+  });
+});
+
 describe('v0.1 -> v0.2 upgrade', () => {
   it('keeps existing subscriptions and adds the new tables', async () => {
     const name = 'subsweep-upgrade-test';

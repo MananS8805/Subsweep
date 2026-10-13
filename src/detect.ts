@@ -11,7 +11,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 /** Parse a bank CSV into debit transactions (see parseStatementDetailed for the skipped-row count). */
 export const parseStatement = (csv: string): Txn[] => parseStatementDetailed(csv).txns;
 
-const NOISE = /\b(pos|debit|card|purchase|payment|recurring|online|checkcard|visa|mastercard|www|http|https|com|inc|llc|ltd|co|pmt|ach|sq|tst|paypal|pp|upi|neft|imps|rtgs|nach|ecom)\b/g;
+const NOISE = /\b(pos|debit|card|purchase|payment|recurring|online|checkcard|visa|mastercard|www|http|https|com|inc|llc|ltd|co|pmt|ach|sq|tst|paypal|pp|upi|neft|imps|rtgs|nach|ecom|autopay|prepaid|mandate)\b/g;
 export function normalizeMerchant(desc: string): string {
   return desc.toLowerCase()
     .replace(/[*#_\-.,/\\()]/g, ' ')

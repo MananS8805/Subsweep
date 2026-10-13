@@ -36,7 +36,7 @@ describe('export / import round trip', () => {
   it('writes the documented format and keeps dates exact', async () => {
     await seedDb();
     const b = JSON.parse(JSON.stringify(await exportBackup()));
-    expect(b).toMatchObject({ app: 'subsweep', version: 1, dismissedDuplicates: ['1-2'], settings: { currency: 'USD' } });
+    expect(b).toMatchObject({ app: 'subsweep', version: 2, dismissedDuplicates: ['1-2'], settings: { currency: 'USD' } });
     expect(typeof b.exportedAt).toBe('string');
     expect(b.subscriptions[0].createdAt).toBe('2026-01-02T10:20:30.456Z');
     expect(b.subscriptions[0].nextRenewal).toBe('2026-11-03');
@@ -50,6 +50,34 @@ describe('export / import round trip', () => {
   });
   it('names the backup file by date', () => {
     expect(backupFileName(new Date('2026-10-13T12:00:00Z'))).toBe('subsweep-backup-2026-10-13.json');
+  });
+});
+
+describe('cancel & verify fields and v1 compatibility', () => {
+  const cancelled: Subscription = {
+    id: 9, name: 'Netflix', amount: 17.99, cycle: 'monthly', nextRenewal: '2026-11-03', category: 'Streaming', isTrial: false,
+    status: 'cancelled', cancelRequestedAt: '2026-10-20', cancelEffectiveDate: '2026-11-03', cancelRef: 'NF-1', verifiedAt: '2026-12-20',
+    zombieCharges: [{ date: '2026-12-03', amount: 17.99 }],
+  };
+  it('round-trips the new fields', async () => {
+    await db.subs.add(cancelled);
+    const text = JSON.stringify(await exportBackup());
+    await wipe();
+    await importBackup(text, 'merge');
+    expect(await db.subs.get(9)).toEqual(cancelled);
+  });
+  it('restores a v1 backup (no cancel fields) as active subscriptions', async () => {
+    const v1 = JSON.stringify({ app: 'subsweep', version: 1, subscriptions: seed, dismissedDuplicates: [], settings: {} });
+    await importBackup(v1, 'replace');
+    const all = await db.subs.toArray();
+    expect(all).toHaveLength(3);
+    expect(all.every(s => s.status === undefined)).toBe(true);
+  });
+  it('rejects bad cancel fields', () => {
+    const mk = (extra: object) => JSON.stringify({ app: 'subsweep', version: 2, subscriptions: [{ ...seed[0], ...extra }] });
+    expect(() => parseBackup(mk({ status: 'gone' }))).toThrow(/"status"/);
+    expect(() => parseBackup(mk({ cancelEffectiveDate: 'soon' }))).toThrow(/"cancelEffectiveDate"/);
+    expect(() => parseBackup(mk({ zombieCharges: [{ date: '2026-12-03', amount: 'x' }] }))).toThrow(/"zombieCharges"/);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { Subscription } from './types';
+import { isLive, type Subscription } from './types';
 
 const SUFFIXES = new Set(['inc', 'ltd', 'llc', 'co', 'corp', 'com', 'www', 'payment', 'payments', 'pay']);
 
@@ -50,7 +50,7 @@ export function isDuplicate(a: Subscription, b: Subscription): boolean {
  */
 export function findDuplicates(subs: Subscription[], dismissed: Iterable<string> = []): Subscription[][] {
   const skip = new Set(dismissed);
-  const items = subs.filter(s => s.id !== undefined);
+  const items = subs.filter(s => s.id !== undefined && isLive(s)); // a cancelled plan is not a duplicate of a new one
   const parent = items.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   for (let i = 0; i < items.length; i++) {

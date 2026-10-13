@@ -6,6 +6,7 @@ Find and track forgotten subscriptions. Everything runs in your browser; stateme
 - Scan a bank/card statement CSV → detects recurring charges (weekly/monthly/quarterly/yearly) and flags price creep
 - Manual add/edit, free-trial flag, categories
 - Possible-duplicates banner: similar subscriptions can be merged (only when you click) or dismissed
+- Cancel & verify: a cancellation kit per service, tracking of what you cancelled, a check that charges really stopped and a dispute message if they did not
 - JSON backup and restore (Merge or Replace) so your data is never stuck in one browser
 - Dashboard: monthly/yearly totals, category breakdown, renewals in the next 7 days
 - Reminders: browser notifications (when the app is opened) + `.ics` calendar export with 1-day-before alarms
@@ -28,6 +29,13 @@ Find and track forgotten subscriptions. Everything runs in your browser; stateme
 - **Amounts**: `1,234.56`, `1.234,56`, `12,99`, `(15.49)`, `$-15.49`, `15.49-`, `1,299.00 Dr`.
 - UTF-8 BOM, comma / semicolon / tab delimiters and junk lines above the header are fine. Only outflows are treated as subscription candidates, so refunds and credits are ignored. Rows that cannot be read are counted ("N rows skipped").
 - Test samples live in `src/fixtures/`.
+
+## Cancel & verify
+1. Open a subscription and choose **Start cancelling**. You get the steps, a direct account link where known, a heads-up if the service is hard to leave, and email / chat-script templates you can copy.
+2. Cancel on the provider's site, then record the date you cancelled, the paid-through date and any confirmation number.
+3. Later, **Scan statement** with a newer CSV. If a matching charge appears more than 2 days after your paid-through date, the subscription is flagged **Still charging** with a ready-to-send dispute message. If the statement spans a full billing cycle after that date with no such charge, it is marked **Verified** and counted in "Saved per year".
+
+Cancelled items stay on the board but are excluded from totals, reminders and the calendar export. Try it with `sample-data/cancel-zombie-charge.csv` and `sample-data/cancel-verified.csv`. Templates are a starting point, not legal advice, and cancellation steps can change, so always confirm on the provider's site.
 
 ## Backup and restore
 Use **Download backup** to save `subsweep-backup-YYYY-MM-DD.json` (subscriptions, dismissed duplicates, settings). **Restore from backup** offers *Merge* (adds missing, skips ids that already exist) or *Replace* (asks first). Files are validated completely before anything is written; wrong-app files, newer formats and malformed JSON are rejected with a message and your data is left untouched. Backups never leave your device.

@@ -1,4 +1,4 @@
-import type { Subscription } from './types';
+import { isLive, type Subscription } from './types';
 
 
 const esc = (s: string) => s.replace(/([,;\\])/g, '\\$1').replace(/\n/g, '\\n');
@@ -8,7 +8,7 @@ const nextDay = (d: string) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCD
 /** Build an .ics calendar with a renewal event (+1-day-before alarm) for each subscription. */
 export function buildIcs(subs: Subscription[]): string {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SubSweep//EN', 'CALSCALE:GREGORIAN'];
-  for (const s of subs) {
+  for (const s of subs.filter(isLive)) {
     const rrule = { weekly: 'FREQ=WEEKLY', monthly: 'FREQ=MONTHLY', quarterly: 'FREQ=MONTHLY;INTERVAL=3', yearly: 'FREQ=YEARLY' } as const;
     lines.push(
       'BEGIN:VEVENT',

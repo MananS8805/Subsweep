@@ -14,6 +14,12 @@ export class SubDB extends Dexie {
       dismissedDuplicates: '++id, &key',
       settings: 'key',
     });
+    // v3 (cancel & verify) adds only unindexed fields on subs, so the schema is unchanged and no rows move.
+    this.version(3).stores({
+      subs: '++id, name, nextRenewal',
+      dismissedDuplicates: '++id, &key',
+      settings: 'key',
+    });
   }
 }
 export const db = new SubDB();

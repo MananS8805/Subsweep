@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from './db';
-import { CATEGORIES, type Cycle, type Detected, type Subscription } from './types';
+import { CATEGORIES, isLive, type Cycle, type Detected, type Subscription } from './types';
 import { detectRecurring, monthlyCost, nextOnOrAfter, parseStatementDetailed } from './detect';
 import { findDuplicates, groupPairKeys, isAlreadyTracked, mergeSubscriptions } from './dedupe';
 import { backupFileName, exportBackup, importBackup, parseBackup, type ImportMode } from './backup';
 import { buildIcs } from './ics';
-import { cancelHint } from './cancelGuides';
+import { cancelKit, cancelEmail, chatScript, disputeMessage, ctxOf, DIFFICULTY_LABEL } from './cancelKit';
+import { applyCheck, cancelState, checkCancellations, type CancelState } from './zombie';
+import Board from './Board';
+import BrandLogo from './BrandLogo';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -33,6 +36,10 @@ export default function App() {
   const [found, setFound] = useState<(Detected & { keep: boolean })[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [view, setView] = useState<'board' | 'list'>(() => (typeof window !== 'undefined' && window.innerWidth < 720 ? 'list' : 'board'));
+  const [detail, setDetail] = useState<Subscription | null>(null);
+  const [cancelFor, setCancelFor] = useState<Subscription | null>(null);
+  const [textModal, setTextModal] = useState<{ title: string; text: string } | null>(null);
   const [scanInfo, setScanInfo] = useState({ skipped: 0, tracked: 0 });
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [pendingBackup, setPendingBackup] = useState<{ text: string; count: number } | null>(null);
@@ -50,7 +57,7 @@ export default function App() {
   useEffect(() => {
     if (!subs.length) return;
     (async () => {
-      for (const s of subs) {
+      for (const s of subs.filter(isLive)) {
         const rolled = s.isTrial ? s.nextRenewal : nextOnOrAfter(s.nextRenewal, s.cycle);
         if (rolled !== s.nextRenewal) await db.subs.update(s.id!, { nextRenewal: rolled });
       }
@@ -58,35 +65,57 @@ export default function App() {
     if (notifState === 'granted') {
       const key = 'subsweep-notified-' + today();
       if (!localStorage.getItem(key)) {
-        const due = subs.filter(s => daysUntil(s.nextRenewal) >= 0 && daysUntil(s.nextRenewal) <= 3);
+        const due = subs.filter(s => isLive(s) && daysUntil(s.nextRenewal) >= 0 && daysUntil(s.nextRenewal) <= 3);
         due.forEach(s => new Notification(`${s.isTrial ? 'Trial ends' : 'Renews'} soon: ${s.name}`, { body: `${money(s.amount)} on ${s.nextRenewal}` }));
         localStorage.setItem(key, '1');
       }
     }
   }, [subs.length, notifState]);
 
-  const monthly = useMemo(() => subs.filter(s => !s.isTrial).reduce((t, s) => t + monthlyCost(s.amount, s.cycle), 0), [subs]);
+  const stateOf = (s: Subscription): CancelState => cancelState(s, today());
+  const monthly = useMemo(() => subs.filter(s => isLive(s) && !s.isTrial).reduce((t, s) => t + monthlyCost(s.amount, s.cycle), 0), [subs]);
+  const saved = useMemo(() => {
+    let verified = 0, pending = 0;
+    for (const s of subs) {
+      const st = cancelState(s, today());
+      const yearly = monthlyCost(s.amount, s.cycle) * 12;
+      if (st === 'verified') verified += yearly;
+      else if (st === 'cancelling' || st === 'awaiting') pending += yearly;
+    }
+    return { verified, pending };
+  }, [subs]);
+  const zombies = subs.filter(s => s.zombieCharges?.length);
   const byCat = useMemo(() => {
     const m = new Map<string, number>();
-    subs.filter(s => !s.isTrial).forEach(s => m.set(s.category, (m.get(s.category) ?? 0) + monthlyCost(s.amount, s.cycle)));
+    subs.filter(s => isLive(s) && !s.isTrial).forEach(s => m.set(s.category, (m.get(s.category) ?? 0) + monthlyCost(s.amount, s.cycle)));
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [subs]);
   const duplicateGroups = useMemo(() => findDuplicates(subs, dismissed), [subs, dismissed]);
-  const upcoming = subs.filter(s => daysUntil(s.nextRenewal) <= 7 && daysUntil(s.nextRenewal) >= 0);
+  const upcoming = subs.filter(s => isLive(s) && daysUntil(s.nextRenewal) <= 7 && daysUntil(s.nextRenewal) >= 0);
 
   async function onFile(f: File | undefined) {
     setError(''); setNotice('');
     if (!f) return;
     try {
       const { txns, skippedRows } = parseStatementDetailed(await f.text());
+      const cancelMsgs: string[] = [];
+      for (const c of checkCancellations(txns, subs)) {
+        const patch = applyCheck(c, today());
+        if (!patch) continue;
+        const name = subs.find(x => x.id === c.id)!.name;
+        await db.subs.update(c.id, patch);
+        cancelMsgs.push(c.outcome === 'verified' ? `Verified: ${name} is no longer charging you.` : `Still charging: ${name} billed you after you cancelled.`);
+      }
+      if (cancelMsgs.length) { await load(); }
       const all = detectRecurring(txns);
       const det = all.filter(d => !isAlreadyTracked(d.name, subs));
       const tracked = all.length - det.length;
       const info = [skippedRows ? `${skippedRows} row${skippedRows > 1 ? 's' : ''} skipped` : '', tracked ? `${tracked} already tracked` : ''].filter(Boolean).join(' · ');
       setScanInfo({ skipped: skippedRows, tracked });
+      if (cancelMsgs.length) setNotice(cancelMsgs.join(' '));
       if (!det.length) {
-        if (tracked) setNotice(`Nothing new to add. ${info}.`);
-        else setError(`No recurring charges found. Statements covering 3+ months work best.${skippedRows ? ` ${info}.` : ''}`);
+        if (tracked && !cancelMsgs.length) setNotice(`Nothing new to add. ${info}.`);
+        else if (!tracked && !cancelMsgs.length) setError(`No recurring charges found. Statements covering 3+ months work best.${skippedRows ? ` ${info}.` : ''}`);
       }
       setFound(det.length ? det.map(d => ({ ...d, keep: true })) : null);
     } catch (e) { setError((e as Error).message); }
@@ -108,6 +137,22 @@ export default function App() {
     setEditing(null); load();
   }
   async function remove(id: number) { if (confirm('Remove this subscription?')) { await db.subs.delete(id); load(); } }
+
+  async function startCancel(s: Subscription, f: { requestedAt: string; effectiveDate: string; ref: string }) {
+    const { verifiedAt: _v, ...rest } = s;
+    await db.subs.put({ ...rest, status: 'cancelling', cancelRequestedAt: f.requestedAt, cancelEffectiveDate: f.effectiveDate, cancelRef: f.ref.trim() || undefined, zombieCharges: [] });
+    setCancelFor(null); setDetail(null); load();
+  }
+  async function keepSubscription(s: Subscription) {
+    const { status: _s, cancelRequestedAt: _a, cancelEffectiveDate: _b, cancelRef: _c, verifiedAt: _d, zombieCharges: _e, ...rest } = s;
+    await db.subs.put(rest);
+    setDetail(null); load();
+  }
+  async function resolveZombie(s: Subscription) {
+    await db.subs.update(s.id!, { zombieCharges: [], verifiedAt: undefined });
+    setDetail(null); load();
+  }
+  const showDispute = (s: Subscription) => setTextModal({ title: `Dispute message: ${s.name}`, text: disputeMessage(ctxOf(s), s.zombieCharges ?? []) });
 
   async function mergeGroup(group: Subscription[]) {
     const { keep, removeIds } = mergeSubscriptions(group);
@@ -154,29 +199,60 @@ export default function App() {
   }
   async function askNotif() { if (typeof Notification !== 'undefined') setNotifState(await Notification.requestPermission()); }
 
+  const cycleShort = (c: Cycle) => ({ weekly: 'wk', monthly: 'mo', quarterly: 'qtr', yearly: 'yr' })[c];
+  const scanInfoText = [scanInfo.skipped ? `${scanInfo.skipped} row${scanInfo.skipped > 1 ? 's' : ''} skipped` : '', scanInfo.tracked ? `${scanInfo.tracked} already tracked` : ''].filter(Boolean).join(' · ');
+
   return (
     <div className="app">
-      <header>
-        <h1>SubSweep</h1>
-        <p className="tag">Find the subscriptions quietly draining your money. Your data never leaves this device.</p>
+      <header className="top">
+        <h1>SUBSWEEP</h1>
+        <nav className="actions" aria-label="Actions">
+          <label className="btn primary">Scan statement ↗
+            <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={e => onFile(e.target.files?.[0])} />
+          </label>
+          <button className="btn" onClick={() => setEditing(blank())}>+ Add</button>
+          <button className="btn" disabled={!subs.some(isLive)} onClick={() => download('subsweep-renewals.ics', buildIcs(subs), 'text/calendar')}>Calendar</button>
+          {notifState === 'default' && <button className="btn" onClick={askNotif}>Reminders</button>}
+        </nav>
       </header>
 
-      <section className="summary">
-        <div className="stat"><span>Per month</span><strong>{money(monthly)}</strong></div>
-        <div className="stat"><span>Per year</span><strong>{money(monthly * 12)}</strong></div>
-        <div className="stat"><span>Active</span><strong>{subs.filter(s => !s.isTrial).length}</strong></div>
-      </section>
-
-      <section className="actions">
-        <label className="btn primary">Scan bank statement (CSV)
-          <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={e => onFile(e.target.files?.[0])} />
-        </label>
-        <button className="btn" onClick={() => setEditing(blank())}>+ Add manually</button>
-        <button className="btn" disabled={!subs.length} onClick={() => download('subsweep-renewals.ics', buildIcs(subs), 'text/calendar')}>Export calendar (.ics)</button>
-        {notifState === 'default' && <button className="btn" onClick={askNotif}>Enable reminders</button>}
-      </section>
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
+
+      <div className="view-switch" role="tablist" aria-label="View">
+        <button role="tab" aria-selected={view === 'board'} className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}>Explore</button>
+        <button role="tab" aria-selected={view === 'list'} className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button>
+      </div>
+
+      {view === 'board' && (
+        <Board subs={subs} monthly={monthly} saved={saved} stateOf={stateOf} money={money} daysUntil={daysUntil} onOpen={setDetail} onScan={() => fileRef.current?.click()} />
+      )}
+
+      {view === 'list' && (
+        <section className="summary">
+          <div className="stat"><span>Per month</span><strong>{money(monthly)}</strong></div>
+          <div className="stat"><span>Per year</span><strong>{money(monthly * 12)}</strong></div>
+          <div className="stat"><span>Active</span><strong>{subs.filter(s => isLive(s) && !s.isTrial).length}</strong></div>
+          {saved.verified > 0 && <div className="stat"><span>Saved / year</span><strong>{money(saved.verified)}</strong></div>}
+        </section>
+      )}
+
+      {zombies.length > 0 && (
+        <section className="card danger" aria-label="Still being charged">
+          <h2>Still being charged</h2>
+          <p className="muted">These were cancelled, but your statement shows charges after the paid period ended.</p>
+          {zombies.map(s => (
+            <div className="dup-group" key={s.id}>
+              <div className="with-logo"><BrandLogo name={s.name} size={34} />
+                <span><b>{s.name}</b> · {s.zombieCharges!.map(c => `${money(c.amount)} on ${c.date}`).join(', ')}<br /><small className="muted">You cancelled {s.cancelRequestedAt}{s.cancelEffectiveDate && `, paid through ${s.cancelEffectiveDate}`}.</small></span></div>
+              <div className="row-actions">
+                <button className="link" onClick={() => resolveZombie(s)}>Mark resolved</button>
+                <button className="btn primary" onClick={() => showDispute(s)}>Dispute message</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {duplicateGroups.length > 0 && (
         <section className="card warn" aria-label="Possible duplicates">
@@ -184,7 +260,7 @@ export default function App() {
           <p className="muted">These look like the same subscription. Nothing is merged unless you click Merge.</p>
           {duplicateGroups.map(group => (
             <div className="dup-group" key={group.map(s => s.id).join('-')}>
-              <ul className="plain">{group.map(s => <li key={s.id}><b>{s.name}</b> · {money(s.amount)} {s.cycle}{s.isTrial && ' (trial)'}</li>)}</ul>
+              <ul className="plain">{group.map(s => <li key={s.id} className="with-logo"><BrandLogo name={s.name} size={30} /><span><b>{s.name}</b> · {money(s.amount)} {s.cycle}{s.isTrial && ' (trial)'}</span></li>)}</ul>
               <div className="row-actions">
                 <button className="link" onClick={() => dismissGroup(group)}>Dismiss</button>
                 <button className="btn primary" onClick={() => mergeGroup(group)}>Merge {group.length}</button>
@@ -195,15 +271,22 @@ export default function App() {
       )}
 
       {upcoming.length > 0 && (
-        <section className="card warn">
-          <h2>Renewing in the next 7 days</h2>
-          <ul className="plain">{upcoming.map(s => <li key={s.id}><b>{s.name}</b> · {money(s.amount)} · {daysUntil(s.nextRenewal) === 0 ? 'today' : `in ${daysUntil(s.nextRenewal)}d`}{s.isTrial && ' (trial ends)'}</li>)}</ul>
+        <section aria-label="Renewing in the next 7 days">
+          <h2>Renewing this week</h2>
+          <div className="chips">
+            {upcoming.map(s => (
+              <button key={s.id} className="chip" onClick={() => setDetail(s)}>
+                <BrandLogo name={s.name} size={34} />
+                <span><b>{s.name}</b><small>{money(s.amount)} · {daysUntil(s.nextRenewal) === 0 ? 'today' : `in ${daysUntil(s.nextRenewal)}d`}{s.isTrial && ' · trial ends'}</small></span>
+              </button>
+            ))}
+          </div>
         </section>
       )}
 
       {byCat.length > 0 && (
         <section className="card">
-          <h2>By category (monthly)</h2>
+          <h2>By category · monthly</h2>
           {byCat.map(([c, v]) => (
             <div className="bar-row" key={c}>
               <span>{c}</span>
@@ -214,21 +297,25 @@ export default function App() {
         </section>
       )}
 
-      <section>
-        <h2>Your subscriptions</h2>
+      <section aria-label="All subscriptions">
+        <h2>All subscriptions</h2>
         {subs.length === 0 && <p className="empty">Nothing yet. Upload a statement CSV from your bank, or add a subscription by hand.</p>}
         {subs.map(s => (
           <article className="card sub" key={s.id}>
             <div className="row">
-              <div>
-                <h3>{s.name} {s.isTrial && <span className="pill trial">trial</span>}</h3>
-                <p className="muted">{s.category} · {s.cycle} · next {s.nextRenewal} ({daysUntil(s.nextRenewal)}d)</p>
-                {s.priceCreep && <p className="creep">Price crept up: {money(s.priceCreep.from)} → {money(s.priceCreep.to)}</p>}
+              <div className="with-logo">
+                <BrandLogo name={s.name} size={48} />
+                <div>
+                  <h3>{s.name} {s.isTrial && <span className="pill trial">trial</span>}{stateOf(s) !== 'active' && <span className={`pill st-${stateOf(s)}`}>{STATE_LABEL[stateOf(s)]}</span>}</h3>
+                  <p className="muted">{s.category} · {s.cycle} · next {s.nextRenewal} ({daysUntil(s.nextRenewal)}d)</p>
+                  {s.priceCreep && <p className="creep">Price crept up: {money(s.priceCreep.from)} → {money(s.priceCreep.to)}</p>}
+                </div>
               </div>
-              <div className="price">{money(s.amount)}<small>/{s.cycle.replace('ly', '').replace('week', 'wk').replace('month', 'mo').replace('quarter', 'qtr').replace('year', 'yr')}</small></div>
+              <div className="price">{money(s.amount)}<small>/{cycleShort(s.cycle)}</small></div>
             </div>
-            <details><summary>How to cancel</summary><p className="muted">{cancelHint(s.name)}</p></details>
+            {isLive(s) && <details><summary>How to cancel</summary><p className="muted">{cancelKit(s.name).steps}</p></details>}
             <div className="row-actions">
+              <button className="link" onClick={() => setDetail(s)}>{isLive(s) ? 'Cancel…' : 'Status'}</button>
               <button className="link" onClick={() => setEditing(s)}>Edit</button>
               <button className="link danger" onClick={() => remove(s.id!)}>Remove</button>
             </div>
@@ -238,18 +325,48 @@ export default function App() {
 
       {found && (
         <Modal onClose={() => setFound(null)} title={`Found ${found.length} recurring charge${found.length > 1 ? 's' : ''}`}>
-          <p className="muted">Untick anything that isn't a subscription.
-            {(scanInfo.skipped > 0 || scanInfo.tracked > 0) && <> {[scanInfo.skipped ? `${scanInfo.skipped} row${scanInfo.skipped > 1 ? 's' : ''} skipped` : '', scanInfo.tracked ? `${scanInfo.tracked} already tracked` : ''].filter(Boolean).join(' · ')}.</>}
-          </p>
+          <p className="muted">Untick anything that isn't a subscription.{scanInfoText && ` ${scanInfoText}.`}</p>
           <ul className="plain">
             {found.map((d, i) => (
               <li key={d.name}>
-                <label><input type="checkbox" checked={d.keep} onChange={e => setFound(found.map((x, j) => j === i ? { ...x, keep: e.target.checked } : x))} />
-                  {' '}<b>{d.name}</b> · {money(d.amount)} {d.cycle} · seen {d.occurrences}×{d.priceCreep && <span className="creep"> · price up {money(d.priceCreep.from)}→{money(d.priceCreep.to)}</span>}</label>
+                <label className="with-logo"><input type="checkbox" checked={d.keep} onChange={e => setFound(found.map((x, j) => j === i ? { ...x, keep: e.target.checked } : x))} />
+                  <BrandLogo name={d.name} size={34} />
+                  <span><b>{d.name}</b> · {money(d.amount)} {d.cycle} · seen {d.occurrences}×{d.priceCreep && <span className="creep"> · price up {money(d.priceCreep.from)}→{money(d.priceCreep.to)}</span>}</span></label>
               </li>
             ))}
           </ul>
           <button className="btn primary" onClick={importFound}>Add selected</button>
+        </Modal>
+      )}
+
+      {detail && (
+        <Modal onClose={() => setDetail(null)} title={detail.name}>
+          <div className="detail-head">
+            <BrandLogo name={detail.name} size={72} />
+            <div>
+              <div className="price">{money(detail.amount)}<small>/{cycleShort(detail.cycle)}</small></div>
+              <p className="muted">{detail.category} · {detail.cycle}{detail.isTrial && ' · free trial'}</p>
+            </div>
+          </div>
+          <p>Next {detail.isTrial ? 'trial end' : 'renewal'}: <b>{detail.nextRenewal}</b> ({daysUntil(detail.nextRenewal)}d)</p>
+          <p className="muted">That's about {money(monthlyCost(detail.amount, detail.cycle))} a month, {money(monthlyCost(detail.amount, detail.cycle) * 12)} a year.</p>
+          {detail.priceCreep && <p className="creep">Price crept up: {money(detail.priceCreep.from)} → {money(detail.priceCreep.to)}</p>}
+          <DetailStatus s={detail} state={stateOf(detail)} money={money} />
+          {isLive(detail) && (() => { const k = cancelKit(detail.name); return (
+            <details open><summary>How to cancel</summary>
+              <p className="muted">{k.steps}</p>
+              <p className="muted"><span className={`pill diff-${k.difficulty}`}>{DIFFICULTY_LABEL[k.difficulty]}</span>{k.note && ` ${k.note}`}</p>
+            </details>); })()}
+          <div className="row-actions">
+            <button className="link danger" onClick={async () => { const id = detail.id!; setDetail(null); await remove(id); }}>Remove</button>
+            {isLive(detail) ? <>
+              <button className="btn" onClick={() => { setCancelFor(detail); setDetail(null); }}>Start cancelling</button>
+              <button className="btn primary" onClick={() => { setEditing(detail); setDetail(null); }}>Edit</button>
+            </> : <>
+              {stateOf(detail) === 'zombie' && <button className="btn primary" onClick={() => showDispute(detail)}>Dispute message</button>}
+              <button className="btn" onClick={() => keepSubscription(detail)}>Keep subscription</button>
+            </>}
+          </div>
         </Modal>
       )}
 
@@ -275,8 +392,10 @@ export default function App() {
         </Modal>
       )}
 
+      {cancelFor && <CancelFlow sub={cancelFor} onSave={f => startCancel(cancelFor, f)} onClose={() => setCancelFor(null)} onText={(title, text) => setTextModal({ title, text })} />}
+      {textModal && <TextModal title={textModal.title} text={textModal.text} onClose={() => setTextModal(null)} />}
       {editing && <EditForm sub={editing} onSave={save} onCancel={() => setEditing(null)} />}
-      <footer>Local-only · no accounts · no tracking. Always confirm cancellation steps on the provider's site.</footer>
+      <footer>Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
     </div>
   );
 }
@@ -289,6 +408,62 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         {children}
       </div>
     </div>
+  );
+}
+
+const STATE_LABEL: Record<CancelState, string> = { active: '', cancelling: 'cancelling', awaiting: 'unverified', verified: 'verified ✓', zombie: 'still charging' };
+
+function DetailStatus({ s, state, money }: { s: Subscription; state: CancelState; money: (n: number) => string }) {
+  if (state === 'active') return null;
+  const yearly = money(monthlyCost(s.amount, s.cycle) * 12);
+  const text: Record<Exclude<CancelState, 'active'>, string> = {
+    cancelling: `Cancelling. Stays active until ${s.cancelEffectiveDate}. Scan a statement after that date and SubSweep will check the charges stopped.`,
+    awaiting: `The paid period ended ${s.cancelEffectiveDate}. Scan a newer statement (covering a full billing cycle after it) to verify no more charges.`,
+    verified: `Verified cancelled on ${s.verifiedAt}. That is ${yearly} a year you are no longer paying.`,
+    zombie: `Still being charged: ${(s.zombieCharges ?? []).map(c => `${money(c.amount)} on ${c.date}`).join(', ')}.`,
+  };
+  return <p className={state === 'zombie' ? 'error' : state === 'verified' ? 'notice' : 'muted'}>{text[state]}{s.cancelRef && <><br /><small>Reference: {s.cancelRef}</small></>}</p>;
+}
+
+function CancelFlow({ sub, onSave, onClose, onText }: { sub: Subscription; onSave: (f: { requestedAt: string; effectiveDate: string; ref: string }) => void; onClose: () => void; onText: (title: string, text: string) => void }) {
+  const [requestedAt, setRequestedAt] = useState(today());
+  const [effectiveDate, setEffectiveDate] = useState(sub.nextRenewal);
+  const [ref, setRef] = useState('');
+  const kit = cancelKit(sub.name);
+  const ctx = { name: sub.name, amount: sub.amount, requestedAt, effectiveDate, ref };
+  return (
+    <Modal title={`Cancel ${sub.name}`} onClose={onClose}>
+      <p className="muted"><span className={`pill diff-${kit.difficulty}`}>{DIFFICULTY_LABEL[kit.difficulty]}</span> {kit.steps}</p>
+      {kit.note && <p className="muted">{kit.note}</p>}
+      {kit.link && <p><a className="btn" href={kit.link} target="_blank" rel="noopener noreferrer">Open {sub.name} account page ↗</a></p>}
+      <div className="row-actions" style={{ justifyContent: 'flex-start' }}>
+        <button type="button" className="btn" onClick={() => onText('Cancellation email', cancelEmail(ctx))}>Email template</button>
+        <button type="button" className="btn" onClick={() => onText('Chat script', chatScript(ctx))}>Chat script</button>
+      </div>
+      <form className="form" onSubmit={e => { e.preventDefault(); onSave({ requestedAt, effectiveDate, ref }); }}>
+        <p className="muted">After you cancel, record it here. When you scan a later statement, SubSweep checks that the charges really stopped.</p>
+        <label>Date you cancelled<input required type="date" value={requestedAt} onChange={e => setRequestedAt(e.target.value)} /></label>
+        <label>Paid through (last day you are covered)<input required type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></label>
+        <label>Confirmation number or note (optional)<input value={ref} onChange={e => setRef(e.target.value)} /></label>
+        <div className="row-actions"><button type="button" className="btn" onClick={onClose}>Back</button><button className="btn primary">I've cancelled it</button></div>
+      </form>
+      <p className="muted"><small>Always confirm the steps on the provider's site. Message templates are not legal advice.</small></p>
+    </Modal>
+  );
+}
+
+function TextModal({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
+  const area = useRef<HTMLTextAreaElement>(null);
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try { await navigator.clipboard.writeText(text); setCopied(true); }
+    catch { area.current?.select(); setCopied(false); }
+  }
+  return (
+    <Modal title={title} onClose={onClose}>
+      <textarea ref={area} className="textbox" readOnly value={text} rows={12} onFocus={e => e.currentTarget.select()} />
+      <div className="row-actions"><button className="btn primary" onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button></div>
+    </Modal>
   );
 }
 
