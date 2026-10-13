@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from './db';
 import { CATEGORIES, type Cycle, type Detected, type Subscription } from './types';
-import { detectRecurring, monthlyCost, nextOnOrAfter, parseStatement } from './detect';
+import { detectRecurring, monthlyCost, nextOnOrAfter, parseStatementDetailed } from './detect';
+import { findDuplicates, groupPairKeys, isAlreadyTracked, mergeSubscriptions } from './dedupe';
+import { backupFileName, exportBackup, importBackup, parseBackup, type ImportMode } from './backup';
 import { buildIcs } from './ics';
 import { cancelHint } from './cancelGuides';
 
@@ -30,10 +32,18 @@ export default function App() {
   const [editing, setEditing] = useState<Subscription | null>(null);
   const [found, setFound] = useState<(Detected & { keep: boolean })[] | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [scanInfo, setScanInfo] = useState({ skipped: 0, tracked: 0 });
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [pendingBackup, setPendingBackup] = useState<{ text: string; count: number } | null>(null);
+  const backupRef = useRef<HTMLInputElement>(null);
   const [notifState, setNotifState] = useState<string>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const load = async () => setSubs(await db.subs.orderBy('nextRenewal').toArray());
+  const load = async () => {
+    setSubs(await db.subs.orderBy('nextRenewal').toArray());
+    setDismissed((await db.dismissedDuplicates.toArray()).map(d => d.key));
+  };
   useEffect(() => { load(); }, []);
 
   // Roll past renewal dates forward, and fire in-page reminders for anything due within 3 days.
@@ -61,16 +71,23 @@ export default function App() {
     subs.filter(s => !s.isTrial).forEach(s => m.set(s.category, (m.get(s.category) ?? 0) + monthlyCost(s.amount, s.cycle)));
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [subs]);
+  const duplicateGroups = useMemo(() => findDuplicates(subs, dismissed), [subs, dismissed]);
   const upcoming = subs.filter(s => daysUntil(s.nextRenewal) <= 7 && daysUntil(s.nextRenewal) >= 0);
 
   async function onFile(f: File | undefined) {
-    setError('');
+    setError(''); setNotice('');
     if (!f) return;
     try {
-      const txns = parseStatement(await f.text());
-      const existing = new Set(subs.map(s => s.name.toLowerCase()));
-      const det = detectRecurring(txns).filter(d => !existing.has(d.name.toLowerCase()));
-      if (!det.length) setError('No new recurring charges found. Statements covering 3+ months work best.');
+      const { txns, skippedRows } = parseStatementDetailed(await f.text());
+      const all = detectRecurring(txns);
+      const det = all.filter(d => !isAlreadyTracked(d.name, subs));
+      const tracked = all.length - det.length;
+      const info = [skippedRows ? `${skippedRows} row${skippedRows > 1 ? 's' : ''} skipped` : '', tracked ? `${tracked} already tracked` : ''].filter(Boolean).join(' · ');
+      setScanInfo({ skipped: skippedRows, tracked });
+      if (!det.length) {
+        if (tracked) setNotice(`Nothing new to add. ${info}.`);
+        else setError(`No recurring charges found. Statements covering 3+ months work best.${skippedRows ? ` ${info}.` : ''}`);
+      }
       setFound(det.length ? det.map(d => ({ ...d, keep: true })) : null);
     } catch (e) { setError((e as Error).message); }
     if (fileRef.current) fileRef.current.value = '';
@@ -79,7 +96,7 @@ export default function App() {
   async function importFound() {
     const rows = (found ?? []).filter(d => d.keep).map<Subscription>(d => ({
       name: d.name, amount: d.amount, cycle: d.cycle, nextRenewal: d.nextRenewal,
-      category: guessCategory(d.name), isTrial: false, priceCreep: d.priceCreep,
+      category: guessCategory(d.name), isTrial: false, priceCreep: d.priceCreep, createdAt: new Date().toISOString(),
     }));
     await db.subs.bulkAdd(rows);
     setFound(null); load();
@@ -87,10 +104,48 @@ export default function App() {
 
   async function save(s: Subscription) {
     if (!s.name.trim() || !(s.amount > 0)) return;
-    s.id ? await db.subs.put(s) : await db.subs.add(s);
+    s.id ? await db.subs.put(s) : await db.subs.add({ ...s, createdAt: new Date().toISOString() });
     setEditing(null); load();
   }
   async function remove(id: number) { if (confirm('Remove this subscription?')) { await db.subs.delete(id); load(); } }
+
+  async function mergeGroup(group: Subscription[]) {
+    const { keep, removeIds } = mergeSubscriptions(group);
+    await db.transaction('rw', db.subs, db.dismissedDuplicates, async () => {
+      await db.subs.put(keep);
+      await db.subs.bulkDelete(removeIds);
+      const stale = (await db.dismissedDuplicates.toArray()).filter(d => d.key.split('-').some(id => removeIds.includes(+id)));
+      await db.dismissedDuplicates.bulkDelete(stale.map(d => d.id!));
+    });
+    load();
+  }
+  async function dismissGroup(group: Subscription[]) {
+    const fresh = groupPairKeys(group).filter(k => !dismissed.includes(k));
+    await db.dismissedDuplicates.bulkAdd(fresh.map(key => ({ key })));
+    load();
+  }
+
+  async function downloadBackup() {
+    download(backupFileName(), JSON.stringify(await exportBackup(), null, 2), 'application/json');
+  }
+  async function onBackupFile(f: File | undefined) {
+    setError(''); setNotice('');
+    if (!f) return;
+    try {
+      const text = await f.text();
+      setPendingBackup({ text, count: parseBackup(text).subscriptions.length });
+    } catch (e) { setError((e as Error).message); }
+    if (backupRef.current) backupRef.current.value = '';
+  }
+  async function restore(mode: ImportMode) {
+    if (!pendingBackup) return;
+    if (mode === 'replace' && !confirm('Replace everything? All current subscriptions will be deleted and swapped for the backup.')) return;
+    try {
+      const { added, skipped } = await importBackup(pendingBackup.text, mode);
+      setNotice(mode === 'replace' ? `Restored ${added} subscription${added === 1 ? '' : 's'} from backup.` : `Added ${added} from backup${skipped ? `, skipped ${skipped} already here` : ''}.`);
+    } catch (e) { setError((e as Error).message); }
+    setPendingBackup(null); load();
+  }
 
   function download(name: string, content: string, type: string) {
     const a = document.createElement('a');
@@ -121,6 +176,23 @@ export default function App() {
         {notifState === 'default' && <button className="btn" onClick={askNotif}>Enable reminders</button>}
       </section>
       {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="notice" role="status">{notice}</p>}
+
+      {duplicateGroups.length > 0 && (
+        <section className="card warn" aria-label="Possible duplicates">
+          <h2>Possible duplicates</h2>
+          <p className="muted">These look like the same subscription. Nothing is merged unless you click Merge.</p>
+          {duplicateGroups.map(group => (
+            <div className="dup-group" key={group.map(s => s.id).join('-')}>
+              <ul className="plain">{group.map(s => <li key={s.id}><b>{s.name}</b> · {money(s.amount)} {s.cycle}{s.isTrial && ' (trial)'}</li>)}</ul>
+              <div className="row-actions">
+                <button className="link" onClick={() => dismissGroup(group)}>Dismiss</button>
+                <button className="btn primary" onClick={() => mergeGroup(group)}>Merge {group.length}</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {upcoming.length > 0 && (
         <section className="card warn">
@@ -166,7 +238,9 @@ export default function App() {
 
       {found && (
         <Modal onClose={() => setFound(null)} title={`Found ${found.length} recurring charge${found.length > 1 ? 's' : ''}`}>
-          <p className="muted">Untick anything that isn't a subscription.</p>
+          <p className="muted">Untick anything that isn't a subscription.
+            {(scanInfo.skipped > 0 || scanInfo.tracked > 0) && <> {[scanInfo.skipped ? `${scanInfo.skipped} row${scanInfo.skipped > 1 ? 's' : ''} skipped` : '', scanInfo.tracked ? `${scanInfo.tracked} already tracked` : ''].filter(Boolean).join(' · ')}.</>}
+          </p>
           <ul className="plain">
             {found.map((d, i) => (
               <li key={d.name}>
@@ -176,6 +250,28 @@ export default function App() {
             ))}
           </ul>
           <button className="btn primary" onClick={importFound}>Add selected</button>
+        </Modal>
+      )}
+
+      <section className="card">
+        <h2>Backup</h2>
+        <p className="muted">Save everything to a file you control, or restore it later. Nothing is uploaded.</p>
+        <div className="actions">
+          <button className="btn" onClick={downloadBackup}>Download backup</button>
+          <label className="btn">Restore from backup
+            <input ref={backupRef} type="file" accept=".json,application/json" hidden onChange={e => onBackupFile(e.target.files?.[0])} />
+          </label>
+        </div>
+      </section>
+
+      {pendingBackup && (
+        <Modal onClose={() => setPendingBackup(null)} title="Restore from backup">
+          <p>This backup contains <b>{pendingBackup.count}</b> subscription{pendingBackup.count === 1 ? '' : 's'}.</p>
+          <p className="muted"><b>Merge</b> adds the ones you're missing and skips any that already exist. <b>Replace</b> deletes your current data first.</p>
+          <div className="row-actions">
+            <button className="btn" onClick={() => restore('replace')}>Replace…</button>
+            <button className="btn primary" onClick={() => restore('merge')}>Merge</button>
+          </div>
         </Modal>
       )}
 

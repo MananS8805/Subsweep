@@ -1,0 +1,12 @@
+ACME BANK - ACCOUNT STATEMENT
+Account: XXXX1234
+Period: 01 Jan 2026 to 30 Apr 2026
+
+Date,Description,Amount
+2026-01-02,DROPBOX,-11.99
+2026-02-02,DROPBOX,-11.99
+2026-03-02,DROPBOX,-11.99
+2026-04-02,DROPBOX,-11.99
+not-a-date,MYSTERY ROW,abc
+
+End of statement

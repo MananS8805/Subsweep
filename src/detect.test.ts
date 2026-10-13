@@ -36,7 +36,7 @@ describe('detection', () => {
   it('handles month-end rollover', () => { expect(addCycle('2026-01-31', 'monthly')).toBe('2026-02-28'); });
   it('normalizes merchants', () => { expect(normalizeMerchant('NETFLIX.COM 8665 CA')).toBe('netflix'); });
   it('handles separate debit column CSVs', () => {
-    const t = parseStatement('Date,Description,Debit,Credit\n03/01/2026,Hulu,7.99,\n04/01/2026,Hulu,7.99,\n05/01/2026,Hulu,7.99,\n');
+    const t = parseStatement('Date,Description,Debit,Credit\n13/01/2026,Hulu,7.99,\n13/02/2026,Hulu,7.99,\n13/03/2026,Hulu,7.99,\n');
     expect(detectRecurring(t, '2026-10-12')[0].name).toBe('Hulu');
   });
   it('builds ics', () => {
