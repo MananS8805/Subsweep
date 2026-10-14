@@ -1,0 +1,28 @@
+{
+  "app": "subsweep",
+  "version": 2,
+  "exportedAt": "2026-10-14T09:00:00.000Z",
+  "subscriptions": [
+    { "id": 1, "name": "Netflix", "amount": 649, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-10-19", "category": "Streaming", "isTrial": false, "priceCreep": { "from": 499, "to": 649 }, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-10-12" },
+    { "id": 2, "name": "Hotstar", "amount": 299, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-10-27", "category": "Streaming", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-10-10" },
+    { "id": 3, "name": "Amazon Prime", "amount": 1499, "currency": "INR", "cycle": "yearly", "nextRenewal": "2027-02-11", "category": "Shopping", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-10-09" },
+    { "id": 4, "name": "Spotify", "amount": 119, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-10-16", "category": "Music", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-10-13" },
+    { "id": 5, "name": "Apple Music", "amount": 99, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-11-02", "category": "Music", "isTrial": false, "createdAt": "2026-04-10T10:00:00.000Z", "lastUsedAt": "2026-10-01" },
+    { "id": 6, "name": "iCloud", "amount": 75, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-10-30", "category": "Cloud & Storage", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-10-13" },
+    { "id": 7, "name": "Dropbox", "amount": 11.99, "currency": "USD", "cycle": "monthly", "nextRenewal": "2026-11-08", "category": "Cloud & Storage", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-08-01" },
+    { "id": 8, "name": "Adobe Creative Cloud", "amount": 54.99, "currency": "USD", "cycle": "monthly", "nextRenewal": "2026-10-22", "category": "Software", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-10-11" },
+    { "id": 9, "name": "ChatGPT", "amount": 20, "currency": "USD", "cycle": "monthly", "nextRenewal": "2026-11-04", "category": "Software", "isTrial": false, "createdAt": "2026-05-02T10:00:00.000Z", "lastUsedAt": "2026-10-14" },
+    { "id": 10, "name": "Duolingo", "amount": 12.99, "currency": "EUR", "cycle": "monthly", "nextRenewal": "2026-11-12", "category": "Other", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "lastUsedAt": "2026-07-20" },
+    { "id": 11, "name": "Peloton", "amount": 1999, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-10-25", "category": "Fitness & Health", "isTrial": false, "createdAt": "2026-02-02T10:00:00.000Z", "lastUsedAt": "2026-06-30" },
+    { "id": 12, "name": "Headspace", "amount": 399, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-10-17", "category": "Fitness & Health", "isTrial": true, "createdAt": "2026-10-03T10:00:00.000Z" },
+    { "id": 13, "name": "Disney+", "amount": 499, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-09-05", "category": "Streaming", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "status": "cancelled", "cancelRequestedAt": "2026-08-20", "cancelEffectiveDate": "2026-09-05", "cancelRef": "DP-88231", "verifiedAt": "2026-10-10", "zombieCharges": [] },
+    { "id": 14, "name": "Audible", "amount": 199, "currency": "INR", "cycle": "monthly", "nextRenewal": "2026-09-14", "category": "Music", "isTrial": false, "createdAt": "2026-03-02T10:00:00.000Z", "status": "cancelled", "cancelRequestedAt": "2026-08-30", "cancelEffectiveDate": "2026-09-14", "cancelRef": "AUD-5521", "zombieCharges": [ { "date": "2026-10-14", "amount": 199 } ] }
+  ],
+  "dismissedDuplicates": [],
+  "settings": {
+    "baseCurrency": "INR",
+    "rates": { "USD": 83, "EUR": 90 },
+    "ratesNeedReview": false,
+    "dismissedInsights": []
+  }
+}

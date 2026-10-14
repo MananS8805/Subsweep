@@ -50,9 +50,9 @@ h3{margin:0;font-size:1.05rem}
 .detail-head{display:flex;gap:16px;align-items:center;margin-bottom:8px}
 
 /* cards, lists */
-.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 8px}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 8px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:14px}
-.stat span{display:block;color:var(--muted);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase}.stat strong{font-size:1.5rem;letter-spacing:-.02em}
+.stat span{display:block;color:var(--muted);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase}.stat strong{font-size:clamp(1.15rem,5vw,1.5rem);letter-spacing:-.02em;overflow-wrap:anywhere}
 .card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:16px;margin:12px 0}
 .card.warn{border-color:var(--warn)}.card h2{margin-top:0}
 .row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
@@ -116,9 +116,11 @@ table.rates input{width:110px}
 .cancel-pick{cursor:pointer}.cancel-pick input[type=checkbox]{flex:none}
 .yearly-row.picked{border-color:var(--accent);background:var(--card2)}
 .link.name{text-decoration:none;font-weight:600;padding:0;color:var(--fg)}
-.insights{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.insights{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
 .insight{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:14px;display:flex;flex-direction:column;gap:2px}
 .insight h3{font-size:.98rem}.it-head{display:flex;gap:10px;align-items:center}
 .it-icon{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--line);flex:none}
 .it-overlap{border-left:4px solid var(--warn)}.it-unused{border-left:4px solid var(--muted)}.it-creep{border-left:4px solid var(--danger)}.it-trial{border-left:4px solid var(--accent)}
 .insight .row-actions{margin-top:auto;padding-top:8px}
+
+.insight .row-actions{flex-wrap:wrap}.insight .btn,.insight .link{white-space:nowrap}
