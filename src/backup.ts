@@ -1,5 +1,6 @@
 import { db } from './db';
 import type { CancelStatus, Cycle, DismissedDuplicate, Subscription } from './types';
+import { isCurrencyCode } from './currency';
 
 export const BACKUP_APP = 'subsweep';
 export const BACKUP_VERSION = 2; // v2 adds the cancel & verify fields; v1 files still restore
@@ -86,6 +87,18 @@ function cleanSub(raw: unknown, i: number): Subscription {
       if (!isIsoDay(raw[f])) throw bad(f);
       sub[f] = raw[f] as string;
     }
+  }
+  if (raw.currency !== undefined) {
+    if (!isCurrencyCode(raw.currency)) throw bad('currency');
+    sub.currency = raw.currency;
+  }
+  if (raw.selectedForCancel !== undefined) {
+    if (typeof raw.selectedForCancel !== 'boolean') throw bad('selectedForCancel');
+    sub.selectedForCancel = raw.selectedForCancel;
+  }
+  if (raw.lastUsedAt !== undefined) {
+    if (!isIsoDay(raw.lastUsedAt)) throw bad('lastUsedAt');
+    sub.lastUsedAt = raw.lastUsedAt;
   }
   if (raw.cancelRef !== undefined) {
     if (typeof raw.cancelRef !== 'string') throw bad('cancelRef');

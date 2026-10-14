@@ -98,3 +98,27 @@ footer{color:var(--muted);font-size:.78rem;text-align:center;margin:34px 0 10px}
 .textbox{width:100%;font:inherit;font-size:.85rem;line-height:1.45;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--fg);resize:vertical}
 a.btn{display:inline-block;text-decoration:none}
 @media (prefers-reduced-motion:reduce){.tile.st-zombie{animation:none}}
+
+/* v0.4: currency, yearly view, insights */
+.block{display:block}
+.two{display:grid;grid-template-columns:1fr 120px;gap:10px}
+.form-row{display:grid;gap:4px;font-size:.9rem;margin:8px 0}
+table.rates{width:100%;border-collapse:collapse;margin:10px 0}
+table.rates th,table.rates td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);font-weight:400;font-size:.9rem}
+table.rates thead th{color:var(--muted);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase}
+table.rates input{width:110px}
+.linkpill{border:0;cursor:pointer;font:inherit;font-size:.65rem}
+.notice.review{color:var(--warn)}
+.savings{border-color:var(--accent)}
+.save-line{margin:6px 0}.save-line b{font-size:1.05rem}
+.sort-row{align-items:center}.sort-row h2{margin:30px 0 12px}
+.sort{display:flex;gap:8px;align-items:center;font-size:.85rem;color:var(--muted)}
+.cancel-pick{cursor:pointer}.cancel-pick input[type=checkbox]{flex:none}
+.yearly-row.picked{border-color:var(--accent);background:var(--card2)}
+.link.name{text-decoration:none;font-weight:600;padding:0;color:var(--fg)}
+.insights{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.insight{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:14px;display:flex;flex-direction:column;gap:2px}
+.insight h3{font-size:.98rem}.it-head{display:flex;gap:10px;align-items:center}
+.it-icon{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--line);flex:none}
+.it-overlap{border-left:4px solid var(--warn)}.it-unused{border-left:4px solid var(--muted)}.it-creep{border-left:4px solid var(--danger)}.it-trial{border-left:4px solid var(--accent)}
+.insight .row-actions{margin-top:auto;padding-top:8px}

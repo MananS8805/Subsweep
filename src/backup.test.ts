@@ -81,6 +81,39 @@ describe('cancel & verify fields and v1 compatibility', () => {
   });
 });
 
+describe('currency, simulator and usage fields', () => {
+  const rich: Subscription = {
+    id: 20, name: 'Spotify', amount: 10, cycle: 'monthly', nextRenewal: '2026-11-03', category: 'Music', isTrial: false,
+    currency: 'USD', selectedForCancel: true, lastUsedAt: '2026-10-01',
+  };
+  it('round-trips currency, selection, last-used, base currency, rates and dismissed insights', async () => {
+    await db.subs.add(rich);
+    await db.settings.bulkPut([
+      { key: 'baseCurrency', value: 'INR' }, { key: 'rates', value: { USD: 83.25 } },
+      { key: 'ratesNeedReview', value: true }, { key: 'dismissedInsights', value: ['overlap:music:20,21'] },
+    ]);
+    const before = await snapshot();
+    const text = JSON.stringify(await exportBackup());
+    await wipe();
+    await importBackup(text, 'merge');
+    expect(await snapshot()).toEqual(before);
+    expect(await db.subs.get(20)).toEqual(rich);
+  });
+  it('restores a pre-currency backup: rows keep no currency (read as the base), settings untouched', async () => {
+    const old = JSON.stringify({ app: 'subsweep', version: 1, subscriptions: [seed[0]], dismissedDuplicates: [], settings: {} });
+    await importBackup(old, 'replace');
+    const row = await db.subs.get(1);
+    expect(row?.currency).toBeUndefined();
+    expect(await db.settings.count()).toBe(0);
+  });
+  it('rejects malformed new fields', () => {
+    const mk = (extra: object) => JSON.stringify({ app: 'subsweep', version: 2, subscriptions: [{ ...seed[0], ...extra }] });
+    expect(() => parseBackup(mk({ currency: 'dollars' }))).toThrow(/"currency"/);
+    expect(() => parseBackup(mk({ selectedForCancel: 'yes' }))).toThrow(/"selectedForCancel"/);
+    expect(() => parseBackup(mk({ lastUsedAt: 'yesterday' }))).toThrow(/"lastUsedAt"/);
+  });
+});
+
 describe('merge mode', () => {
   it('adds missing ids and skips ids that exist', async () => {
     await db.subs.bulkAdd([{ ...seed[0], name: 'Netflix (edited locally)' }]);

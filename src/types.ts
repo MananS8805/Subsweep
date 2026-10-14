@@ -11,6 +11,9 @@ export interface Subscription {
   notes?: string;
   createdAt?: string; // ISO timestamp; absent on v0.1 data
   priceHistory?: { date: string; amount: number }[];
+  currency?: string;          // ISO 4217; absent means the base currency
+  selectedForCancel?: boolean; // ticked in the yearly view's savings simulator
+  lastUsedAt?: string;        // YYYY-MM-DD, set by "Used recently"
   // Cancel & verify (v0.3). Absent status means active.
   status?: CancelStatus;
   cancelRequestedAt?: string;   // YYYY-MM-DD, when you asked to cancel
@@ -32,5 +35,6 @@ export interface Detected {
   nextRenewal: string;
   occurrences: number;
   priceCreep: { from: number; to: number } | null;
+  currency?: string; // seen in the statement's amount column, when it shows one
 }
 export const CATEGORIES = ['Streaming', 'Music', 'Software', 'Cloud & Storage', 'News & Reading', 'Fitness & Health', 'Gaming', 'Shopping', 'Finance', 'Other'];

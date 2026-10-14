@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
+import { detectCurrency } from './currency';
 
-export interface Txn { date: string; desc: string; amount: number }
+export interface Txn { date: string; desc: string; amount: number; currency?: string }
 export interface ParsedStatement { txns: Txn[]; skippedRows: number }
 export type DateOrder = 'dmy' | 'mdy';
 
@@ -87,13 +88,14 @@ export function parseAmount(raw: unknown): number | null {
 
 // ---- header normalization -------------------------------------------------
 
-type Role = 'date' | 'indicator' | 'debit' | 'credit' | 'amount' | 'desc';
+type Role = 'date' | 'indicator' | 'debit' | 'credit' | 'amount' | 'desc' | 'currency';
 const ROLE_PATTERNS: [Role, RegExp][] = [
   ['date', /date|^posted$|^posting$/],
   ['indicator', /^(dr\s*[/\\]\s*cr|cr\s*[/\\]\s*dr|debit\s*[/\\]\s*credit|credit\s*[/\\]\s*debit|d\s*[/\\]\s*c|type|txn type|transaction type)$/],
   ['debit', /^(dr|(debit|withdrawal)s?( amt\.?| amount)?|paid out|money out)$/],
   ['credit', /^(cr|(credit|deposit)s?( amt\.?| amount)?|paid in|money in)$/],
   ['amount', /^(amount|amt|transaction amount|txn amount|value)$/],
+  ['currency', /^(currency|ccy|curr|currency code)$/],
   ['desc', /description|narration|narrative|details|merchant|payee|particulars|memo|remarks|^name$/],
 ];
 // Preferred date column when a statement has several (e.g. Transaction Date + Value Date).
@@ -101,10 +103,10 @@ const DATE_PREFERENCE = ['transaction date', 'txn date', 'trans date', 'date', '
 
 const clean = (h: string) => h.replace(/^﻿/, '').replace(/["']/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
-interface Columns { date: number; desc: number; debit: number; credit: number; amount: number; indicator: number }
+interface Columns { date: number; desc: number; debit: number; credit: number; amount: number; indicator: number; currency: number }
 
 function mapHeader(cells: string[]): Columns {
-  const cols: Columns = { date: -1, desc: -1, debit: -1, credit: -1, amount: -1, indicator: -1 };
+  const cols: Columns = { date: -1, desc: -1, debit: -1, credit: -1, amount: -1, indicator: -1, currency: -1 };
   const names = cells.map(clean);
   cols.date = DATE_PREFERENCE.map(p => names.indexOf(p)).find(i => i >= 0) ?? -1;
   names.forEach((name, i) => {
@@ -157,7 +159,11 @@ export function parseStatementDetailed(csv: string): ParsedStatement {
   const useIndicator = !split && cols.amount >= 0 && indicatorValues.length > 0
     && indicatorValues.filter(v => DR.test(v) || CR.test(v)).length >= indicatorValues.length * 0.5;
 
-  type Row = { date: string; desc: string; amount: number; signed: boolean; outflow: boolean };
+  type Row = { date: string; desc: string; amount: number; signed: boolean; outflow: boolean; currency?: string };
+  const currencyOf = (r: string[], ...cells: number[]) => {
+    const col = cols.currency >= 0 ? cell(r, cols.currency).trim().toUpperCase() : '';
+    return /^[A-Z]{3}$/.test(col) ? col : cells.map(i => detectCurrency(cell(r, i))).find(Boolean);
+  };
   const rows: Row[] = [];
   let skippedRows = 0;
   for (const r of data) {
@@ -168,7 +174,7 @@ export function parseStatementDetailed(csv: string): ParsedStatement {
       const debit = cols.debit >= 0 ? parseAmount(cell(r, cols.debit)) : null;
       const credit = cols.credit >= 0 ? parseAmount(cell(r, cols.credit)) : null;
       if (debit === null && credit === null) { skippedRows++; continue; }
-      rows.push({ date, desc, amount: Math.abs(debit ?? 0), signed: false, outflow: debit !== null && debit !== 0 });
+      rows.push({ date, desc, amount: Math.abs(debit ?? 0), signed: false, outflow: debit !== null && debit !== 0, currency: currencyOf(r, cols.debit) });
       continue;
     }
     const amt = parseAmount(cell(r, cols.amount));
@@ -176,9 +182,9 @@ export function parseStatementDetailed(csv: string): ParsedStatement {
     if (useIndicator) {
       const ind = cell(r, cols.indicator).trim();
       if (!DR.test(ind) && !CR.test(ind)) { skippedRows++; continue; }
-      rows.push({ date, desc, amount: Math.abs(amt), signed: false, outflow: DR.test(ind) && amt !== 0 });
+      rows.push({ date, desc, amount: Math.abs(amt), signed: false, outflow: DR.test(ind) && amt !== 0, currency: currencyOf(r, cols.amount) });
     } else {
-      rows.push({ date, desc, amount: amt, signed: true, outflow: false });
+      rows.push({ date, desc, amount: amt, signed: true, outflow: false, currency: currencyOf(r, cols.amount) });
     }
   }
 
@@ -188,7 +194,7 @@ export function parseStatementDetailed(csv: string): ParsedStatement {
   const txns: Txn[] = [];
   for (const r of rows) {
     const outflow = r.signed ? (debitsAreNegative ? r.amount < 0 : r.amount > 0) : r.outflow;
-    if (outflow) txns.push({ date: r.date, desc: r.desc, amount: Math.abs(r.amount) });
+    if (outflow) txns.push({ date: r.date, desc: r.desc, amount: Math.abs(r.amount), ...(r.currency ? { currency: r.currency } : {}) });
   }
   return { txns, skippedRows };
 }

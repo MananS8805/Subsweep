@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-10-14
+### Added
+- **Multi-currency.** Every subscription has a currency (default: your base currency, INR out of the box). Pick a base currency and type in manual exchange rates (base units per 1 unit of each currency) in the new Currency panel. Totals, the category bars, the explore board and renewals use the base currency, while each row keeps its native price with the converted amount in small text. A currency with no rate shows "set rate", is left out of totals and is called out in a banner, never treated as 1. Changing the base currency keeps your rates and asks you to review them. No live rate lookups.
+- Statement scans pick up a currency from the amount ($, €, £, ₹, Rs, an ISO code) or a Currency column, and fall back to the base currency.
+- **Yearly view** with yearly cost by category and per subscription (sortable) plus a **"what you'd save" simulator**: tick Cancel? on items to see the monthly, yearly and 5-year savings. Selections are saved and survive a reload; Clear selection resets them.
+- **Insights** at the top of the screen: overlapping services (music, video, storage, news, fitness, design), subscriptions you have not marked "Used recently" in 60 days (45 days if never marked), price hikes and trials about to convert, each with a yearly saving. Dismiss keeps an insight hidden until the underlying set changes; "Review & select" ticks the involved items in the simulator.
+- Backup now carries currency, the base currency, rates, selections, last-used dates and dismissed insights. Backups made before this version still restore (their rows are read in the base currency).
+
+### Changed
+- Database schema v4: existing subscriptions get `currency` set to your base currency (INR by default); nothing else moves.
+- Backup format stays at version 2; the new fields are optional on import.
+
 ## 0.3.0 - 2026-10-13
 ### Added
 - **Cancel & verify loop.** From any subscription, "Start cancelling" opens a cancellation kit: steps, a direct account link where known, how hard the service is to leave, and copyable cancellation email and chat-script templates. Record the date you cancelled, the paid-through date and a confirmation number.

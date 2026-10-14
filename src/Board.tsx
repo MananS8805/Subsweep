@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { Subscription } from './types';
 import type { CancelState } from './zombie';
-import { monthlyCost } from './detect';
 import BrandLogo from './BrandLogo';
 
 interface Props {
@@ -9,7 +8,8 @@ interface Props {
   monthly: number;
   saved: { verified: number; pending: number };
   stateOf: (s: Subscription) => CancelState;
-  money: (n: number) => string;
+  costOf: (s: Subscription) => number; // monthly cost in the base currency
+  money: (n: number, currency?: string) => string;
   daysUntil: (d: string) => number;
   onOpen: (s: Subscription) => void;
   onScan: () => void;
@@ -21,7 +21,7 @@ const seeded = (n: number) => { const x = Math.sin(n * 12.9898) * 43758.5453; re
 /** Drag-to-explore canvas: every subscription is a tilted card, bigger when it costs more. */
 const BADGE: Partial<Record<CancelState, string>> = { cancelling: 'Cancelling', awaiting: 'Unverified', verified: 'Cancelled ✓', zombie: 'Still charging!' };
 
-export default function Board({ subs, monthly, saved, stateOf, money, daysUntil, onOpen, onScan }: Props) {
+export default function Board({ subs, monthly, saved, stateOf, costOf, money, daysUntil, onOpen, onScan }: Props) {
   const stage = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const pan = useRef({ x: 0, y: 0 });
@@ -29,10 +29,10 @@ export default function Board({ subs, monthly, saved, stateOf, money, daysUntil,
   const raf = useRef(0);
 
   const layout = useMemo(() => {
-    const sorted = [...subs].sort((a, b) => monthlyCost(b.amount, b.cycle) - monthlyCost(a.amount, a.cycle));
-    const top = Math.max(1, ...sorted.map(s => monthlyCost(s.amount, s.cycle)));
+    const sorted = [...subs].sort((a, b) => costOf(b) - costOf(a));
+    const top = Math.max(1, ...sorted.map(costOf));
     return sorted.map((s, i) => {
-      const cost = monthlyCost(s.amount, s.cycle);
+      const cost = costOf(s);
       const size = 132 + Math.round(Math.sqrt(cost / top) * 64);
       const r = 235 + 118 * Math.sqrt(i);
       const a = i * GOLDEN + 0.6;
@@ -43,7 +43,7 @@ export default function Board({ subs, monthly, saved, stateOf, money, daysUntil,
         tilt: (seeded(key) - 0.5) * 11,
       };
     });
-  }, [subs]);
+  }, [subs, costOf]);
 
   const apply = () => { if (world.current) world.current.style.transform = `translate3d(${pan.current.x}px, ${pan.current.y}px, 0)`; };
   const reach = useMemo(() => Math.max(300, ...layout.map(l => Math.max(Math.abs(l.x), Math.abs(l.y) * 1.6))) + 120, [layout]);
@@ -109,12 +109,12 @@ export default function Board({ subs, monthly, saved, stateOf, money, daysUntil,
             className={`tile st-${stateOf(s)}`}
             style={{ ['--x' as string]: `${x}px`, ['--y' as string]: `${y}px`, ['--tilt' as string]: `${tilt}deg`, ['--size' as string]: `${size}px`, ['--i' as string]: i }}
             onClick={() => { if (!dragged.current) onOpen(s); }}
-            aria-label={`${s.name}, ${money(s.amount)} ${s.cycle}. Open details.`}
+            aria-label={`${s.name}, ${money(s.amount, s.currency)} ${s.cycle}. Open details.`}
           >
             {BADGE[stateOf(s)] && <span className={`badge st-${stateOf(s)}`}>{BADGE[stateOf(s)]}</span>}
             <BrandLogo name={s.name} size={Math.round(size * 0.42)} />
             <span className="t-name">{s.name}{s.isTrial && <em className="pill trial">trial</em>}</span>
-            <span className="t-price">{money(s.amount)}<small>/{s.cycle === 'monthly' ? 'mo' : s.cycle === 'yearly' ? 'yr' : s.cycle === 'weekly' ? 'wk' : 'qtr'}</small></span>
+            <span className="t-price">{money(s.amount, s.currency)}<small>/{s.cycle === 'monthly' ? 'mo' : s.cycle === 'yearly' ? 'yr' : s.cycle === 'weekly' ? 'wk' : 'qtr'}</small></span>
             <span className="t-next">{stateOf(s) !== 'active' ? (s.cancelEffectiveDate ? `paid to ${s.cancelEffectiveDate}` : '') : daysUntil(s.nextRenewal) <= 0 ? 'renews today' : `in ${daysUntil(s.nextRenewal)}d`}</span>
           </button>
         ))}

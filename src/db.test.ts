@@ -42,7 +42,7 @@ describe('v0.1 -> v0.2 upgrade', () => {
     expect(rows[0]).toMatchObject({ amount: 15.49, nextRenewal: '2026-11-03' });
     await upgraded.dismissedDuplicates.add({ key: '1-2' });
     await expect(upgraded.dismissedDuplicates.add({ key: '1-2' })).rejects.toThrow();
-    expect(await upgraded.settings.count()).toBe(0);
+    expect((await upgraded.settings.toArray()).map(s => s.key)).toEqual(['baseCurrency']); // v4 records the default base currency
     upgraded.close();
   });
 });

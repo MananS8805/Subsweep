@@ -79,6 +79,7 @@ export function detectRecurring(txns: Txn[], today = iso(new Date())): Detected[
     const creep = last > first * 1.03 ? { from: first, to: last } : null;
     out.push({
       name: titleCase(key), amount: last, cycle, lastDate, occurrences: sorted.length,
+      currency: [...sorted].reverse().find(t => t.currency)?.currency,
       nextRenewal: nextOnOrAfter(addCycle(lastDate, cycle), cycle, today), priceCreep: creep,
     });
   }
