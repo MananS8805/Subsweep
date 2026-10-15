@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.0 - 2026-10-15
+### Added
+- **Accessibility.** Skip link, one `h1`, a `main` landmark and a sensible heading order. Tabs are real tabs (arrow keys, Home and End) with a tab panel. Dialogs move focus in, keep Tab inside, close on Escape and give focus back to what opened them; only the top dialog reacts when two are stacked. Scan results, errors, "N rows skipped" and backup messages are announced through always-mounted live regions that never repeat the same message on a re-render. Logos are decorative and tiles are named by their visible text. File pickers are real buttons (they were unreachable by keyboard). Focus rings are visible everywhere (3px, high contrast) and keyboard focus on an Explore tile pans it into view.
+- **Contrast.** Text and chips meet WCAG AA (4.5:1) in light and dark; form controls have a 3:1 edge. `scripts/contrast.mjs` prints the numbers.
+- **Mobile.** Single-column layout under 600px, 44x44px tap targets, `inputmode="decimal"` on amounts, no horizontal scroll down to 320px, a floating "Add subscription" button that sits under dialogs, and safe-area padding. `prefers-reduced-motion` and forced-colors are respected.
+- **Offline and updates.** The service worker precaches the app shell with a build-stamped, content-hashed cache name, serves hashed assets cache-first and navigations network-first with a cached fallback, and removes old caches on activate. A new version waits and shows a "Reload to update" banner; nothing reloads by itself and user data in IndexedDB is never touched. An "Offline" chip shows when the connection drops.
+- **Install.** An "Install app" button in the new App card (hidden once installed), "Add to Home Screen" guidance on iOS Safari, a full manifest with 192, 512 and maskable icons, an Apple touch icon and iOS meta tags.
+- **Sample data.** "Load sample data" in the App card adds clearly labelled fake subscriptions (INR, USD, EUR) behind a confirmation, only into an empty SubSweep, and "Remove sample data" takes exactly those rows out again.
+- **Deploy.** `vercel.json` (Vite static build, SPA rewrite, strict Content-Security-Policy with `default-src 'self'`, nosniff, no-referrer, immutable asset caching, no-cache for `sw.js` and `index.html`), `robots.txt`, an MIT `LICENSE`, and `npm run preview:prod`, which serves `dist/` with those same headers.
+- Tooling (dev only): `scripts/verify-prod.mjs` and `scripts/verify-update.mjs` check the production build end to end (headers and CSP, keyboard and dialogs, overflow at phone widths, offline cold start, update flow); `scripts/screenshots.mjs` regenerates the README images; `scripts/icons.mjs` renders the PNG icons. They use `playwright-core` with an installed Chrome or Edge, so there is no browser download.
+- New app icon and theme colours.
+
+### Fixed
+- The service worker no longer auto-activates (`skipWaiting`) and takes over open pages.
+- Floating add button could cover buttons inside dialogs on phones.
+- Stat cards no longer overflow on narrow screens.
+
+### Notes
+- No Dexie schema or backup format changes.
+- Measured on the production build: Lighthouse Accessibility, Best Practices and SEO 100; no axe-core violations (WCAG 2.2 A/AA) in light and dark at 1280px and 390px across all tabs and dialogs; Chrome reports the app as installable.
+
 ## 0.4.0 - 2026-10-14
 ### Added
 - **Multi-currency.** Every subscription has a currency (default: your base currency, INR out of the box). Pick a base currency and type in manual exchange rates (base units per 1 unit of each currency) in the new Currency panel. Totals, the category bars, the explore board and renewals use the base currency, while each row keeps its native price with the converted amount in small text. A currency with no rate shows "set rate", is left out of totals and is called out in a banner, never treated as 1. Changing the base currency keeps your rates and asks you to review them. No live rate lookups.

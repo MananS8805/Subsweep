@@ -1,0 +1,119 @@
+// Regenerates the README screenshots in docs/screenshots from the running PRODUCTION build.
+// Every page starts with an empty profile and is filled through the app's own "Load sample data" button,
+// so the images show exactly what a visitor gets. Needs a Chrome/Edge install (scripts/browser.mjs).
+//   npm run build && npm run preview:prod     (one terminal)
+//   npm run screenshots [url]                 (another)
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { launch } from './browser.mjs';
+
+const BASE = process.argv[2] ?? 'http://localhost:4173';
+const OUT = new URL('../docs/screenshots/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+mkdirSync(OUT, { recursive: true });
+const out = (name) => join(OUT, name);
+
+const browser = await launch();
+
+async function open({ width = 1280, height = 860, scale = 2, scheme = 'dark', mobile = false, sample = true } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: scale, colorScheme: scheme, isMobile: mobile, hasTouch: mobile, reducedMotion: 'no-preference' });
+  const page = await context.newPage();
+  page.on('dialog', d => d.accept());
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  if (sample) {
+    await page.getByRole('button', { name: 'Load sample data' }).click();
+    await page.waitForSelector('text=fake sample data');
+  }
+  return { page, context };
+}
+// the Cancel? ticks are saved to IndexedDB and then re-rendered, so click and give that a moment
+const tick = async (page, name) => { await page.getByLabel(`Cancel ${name}?`).click(); await page.waitForTimeout(300); };
+const tab = async (page, name) => { await page.getByRole('tab', { name }).click(); await page.waitForTimeout(1400); };
+
+/** Screenshot the page area from the top of one element to the bottom of another (full-page coordinates). */
+async function between(page, file, topSel, bottomSel, pad = 2) {
+  const r = await page.evaluate(([t, b]) => {
+    const a = document.querySelector(t).getBoundingClientRect(), z = document.querySelector(b).getBoundingClientRect();
+    return { x: 0, y: a.top + scrollY, w: document.documentElement.clientWidth, h: z.bottom - a.top };
+  }, [topSel, bottomSel]);
+  await page.screenshot({ path: out(file), fullPage: true, clip: { x: r.x, y: Math.max(0, r.y - pad), width: r.w, height: r.h + pad * 2 } });
+}
+/** Scroll an element to the top of the viewport and capture the viewport (phone shots). */
+async function viewportAt(page, file, selector, offset = 12) {
+  await page.evaluate(([s, o]) => window.scrollTo(0, document.querySelector(s).getBoundingClientRect().top + scrollY - o), [selector, offset]);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: out(file) });
+}
+
+// ---------------- desktop, dark
+{
+  const { page, context } = await open();
+  await tab(page, 'Explore');
+  await page.evaluate(() => { document.querySelector('.world').style.transform = 'translate3d(0px,0px,0) scale(0.7)'; });
+  await page.waitForTimeout(300);
+  await between(page, 'explore-board.png', '.view-switch', '.stage');
+
+  await tab(page, 'List');
+  await between(page, 'desktop-list.png', '.view-switch', 'article.sub:nth-of-type(3)');
+
+  await page.locator('[aria-label="Insights"]').screenshot({ path: out('desktop-insights.png') });
+  await page.locator('[aria-label="Still being charged"]').screenshot({ path: out('still-charging.png') });
+
+  await page.locator('article.sub', { hasText: 'Netflix' }).getByRole('button', { name: /Cancel/ }).first().click();
+  await page.getByRole('button', { name: 'Start cancelling' }).click();
+  await page.waitForTimeout(500);
+  await page.locator('[role=dialog]').screenshot({ path: out('cancel-kit.png') });
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[role=dialog]', { state: 'detached' });
+
+  await page.locator('#currency-settings').scrollIntoViewIfNeeded();
+  await between(page, 'desktop-settings.png', '#currency-settings', '#app-settings');
+
+  await tab(page, 'Yearly');
+  for (const name of ['Peloton', 'Dropbox', 'Duolingo']) await tick(page, name);
+  await page.waitForTimeout(500);
+  await between(page, 'desktop-yearly.png', '.view-switch', '[aria-label="Yearly cost"] article:nth-of-type(4)');
+
+  // a missing exchange rate: left out of totals and called out
+  await tab(page, 'List');
+  const eur = page.locator('#currency-settings table.rates tr', { hasText: 'EUR' }).locator('input');
+  await eur.fill('');
+  await eur.press('Enter');
+  await page.waitForSelector('[aria-label="Exchange rate needed"]');
+  await page.locator('[aria-label="Exchange rate needed"]').screenshot({ path: out('missing-rate.png') });
+  await context.close();
+}
+
+// ---------------- scan a statement (empty profile, USD base so a dollar statement reads as dollars)
+{
+  const { page, context } = await open({ width: 900, height: 760, sample: false });
+  await page.locator('#currency-settings select').selectOption('USD');
+  await page.locator('input[type=file][accept*=csv]').setInputFiles(new URL('../sample-data/us-credit-card.csv', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  await page.waitForSelector('[role=dialog]');
+  await page.locator('[role=dialog]').screenshot({ path: out('scan-results.png') });
+  await context.close();
+}
+
+// ---------------- light theme
+{
+  const { page, context } = await open({ scheme: 'light' });
+  await tab(page, 'Yearly');
+  for (const name of ['Peloton', 'Dropbox', 'Duolingo']) await tick(page, name);
+  await page.waitForTimeout(500);
+  await between(page, 'light-theme.png', '.view-switch', '[aria-label="Yearly cost"] article:nth-of-type(4)');
+  await context.close();
+}
+
+// ---------------- phone (390 x 844)
+{
+  const { page, context } = await open({ width: 390, height: 844, scale: 3, mobile: true });
+  await viewportAt(page, 'mobile-insights.png', '[aria-label="Insights"]');
+  await viewportAt(page, 'mobile-list.png', '.view-switch');
+  await tab(page, 'Yearly');
+  await tick(page, 'Peloton');
+  await viewportAt(page, 'mobile-yearly.png', '.view-switch');
+  await viewportAt(page, 'mobile-settings.png', '#currency-settings');
+  await context.close();
+}
+
+await browser.close();
+console.log('Screenshots written to docs/screenshots');

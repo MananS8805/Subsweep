@@ -109,7 +109,7 @@ export default function Board({ subs, monthly, saved, stateOf, costOf, money, da
             className={`tile st-${stateOf(s)}`}
             style={{ ['--x' as string]: `${x}px`, ['--y' as string]: `${y}px`, ['--tilt' as string]: `${tilt}deg`, ['--size' as string]: `${size}px`, ['--i' as string]: i }}
             onClick={() => { if (!dragged.current) onOpen(s); }}
-            aria-label={`${s.name}, ${money(s.amount, s.currency)} ${s.cycle}. Open details.`}
+            onFocus={e => { if (e.currentTarget.matches(':focus-visible')) { pan.current = { x: -x, y: -y }; apply(); } }}
           >
             {BADGE[stateOf(s)] && <span className={`badge st-${stateOf(s)}`}>{BADGE[stateOf(s)]}</span>}
             <BrandLogo name={s.name} size={Math.round(size * 0.42)} />

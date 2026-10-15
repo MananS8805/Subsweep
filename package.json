@@ -1,13 +1,17 @@
 {
   "name": "subsweep",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preview:prod": "node scripts/serve-prod.mjs",
+    "icons": "node scripts/icons.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
+    "contrast": "node scripts/contrast.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.8",
@@ -21,8 +25,10 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "fake-indexeddb": "^6.2.5",
+    "playwright-core": "^1.64.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.2",
     "vitest": "^2.0.5"
-  }
+  },
+  "license": "MIT"
 }

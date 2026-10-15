@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { db } from './db';
 import { CURRENCIES } from './currency';
 import { CATEGORIES, isLive, type Cycle, type Detected, type Subscription } from './types';
@@ -13,6 +13,11 @@ import BrandLogo from './BrandLogo';
 import CurrencySettings from './CurrencySettings';
 import YearlyView, { type YearlySort } from './YearlyView';
 import InsightCards from './InsightCards';
+import LiveRegion from './LiveRegion';
+import AppSettingsCard from './AppSettings';
+import { applyUpdate, promptInstall, usePwa } from './pwa';
+import { loadSampleData, removeSampleData } from './sampleData';
+import { modalDepth, nextTabIndex, useModalA11y } from './a11y';
 import { convert, formatMoney } from './currency';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type AppSettings } from './settings';
 import { categoryYearly, missingCurrencies, monthlyBase, subCurrency, totals as calcTotals, yearlyCost } from './savings';
@@ -36,6 +41,8 @@ function guessCategory(name: string): string {
   ];
   return map.find(([re]) => re.test(n))?.[1] ?? 'Other';
 }
+
+const VIEWS = [['board', 'Explore'], ['yearly', 'Yearly'], ['list', 'List']] as const;
 
 export default function App() {
   const [subs, setSubs] = useState<Subscription[]>([]);
@@ -199,6 +206,31 @@ export default function App() {
     setView('yearly');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  const pwa = usePwa();
+  async function installApp() { await promptInstall(); }
+  function reloadForUpdate() {
+    // never reload under an open form: ask first if a dialog (and so possibly unsaved input) is open
+    if (modalDepth() > 0 && !confirm('You have a form open. Reload now and lose anything you have not saved?')) return;
+    applyUpdate();
+  }
+  async function loadSample() {
+    if (!confirm('Load sample data?\n\nThis adds 14 fake subscriptions (INR, USD, EUR) with sample exchange rates so you can try SubSweep. You can remove them again from the App card.')) return;
+    try { const n = await loadSampleData(today()); setNotice(`Loaded ${n} sample subscriptions.`); } catch (e) { setError((e as Error).message); }
+    await load();
+  }
+  async function removeSample() {
+    const n = await removeSampleData(settings.sampleIds);
+    setNotice(`Removed ${n} sample subscription${n === 1 ? '' : 's'}.`);
+    await load();
+  }
+  function onTabKeys(e: React.KeyboardEvent) {
+    const i = VIEWS.findIndex(([id]) => id === view);
+    const n = nextTabIndex(e.key, i, VIEWS.length);
+    if (n === null) return;
+    e.preventDefault();
+    setView(VIEWS[n][0]);
+    document.getElementById(`tab-${VIEWS[n][0]}`)?.focus();
+  }
   const goToRates = () => document.getElementById('currency-settings')?.scrollIntoView({ behavior: 'smooth' });
 
   async function mergeGroup(group: Subscription[]) {
@@ -251,28 +283,46 @@ export default function App() {
 
   return (
     <div className="app">
+      <a className="skip" href="#main">Skip to content</a>
+      {pwa.updateReady && (
+        <div className="banner update" role="status">
+          <span>A new version of SubSweep is ready.</span>
+          <button className="btn primary" onClick={reloadForUpdate}>Reload to update</button>
+        </div>
+      )}
       <header className="top">
         <h1>SUBSWEEP</h1>
+        {!pwa.online && <span className="status-chip" role="status">Offline · your data stays on this device</span>}
         <nav className="actions" aria-label="Actions">
-          <label className="btn primary">Scan statement ↗
-            <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={e => onFile(e.target.files?.[0])} />
-          </label>
-          <button className="btn" onClick={() => setEditing(blank(base))}>+ Add</button>
+          <button className="btn primary" onClick={() => fileRef.current?.click()}>Scan statement ↗</button>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" hidden tabIndex={-1} aria-label="Bank statement CSV file" onChange={e => onFile(e.target.files?.[0])} />
+          <button className="btn add-top" onClick={() => setEditing(blank(base))}>+ Add</button>
           <button className="btn" disabled={!subs.some(isLive)} onClick={() => download('subsweep-renewals.ics', buildIcs(subs), 'text/calendar')}>Calendar</button>
           {notifState === 'default' && <button className="btn" onClick={askNotif}>Reminders</button>}
         </nav>
       </header>
 
-      {error && <p className="error" role="alert">{error}</p>}
-      {notice && <p className="notice" role="status">{notice}</p>}
+      <LiveRegion polite={notice} assertive={error} />
+      <main id="main" tabIndex={-1}>
+      {settings.sampleIds.length > 0 && (
+        <div className="banner sample" role="note">
+          <span>You're looking at fake sample data.</span>
+          <button className="btn" onClick={removeSample}>Remove sample data</button>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+      {notice && <p className="notice">{notice}</p>}
 
       <InsightCards insights={insights} money={n => money(n)} onDismiss={dismissInsight} onReview={reviewInsight} onUsed={i => markUsed(i.subIds[0])} />
 
-      <div className="view-switch" role="tablist" aria-label="View">
-        <button role="tab" aria-selected={view === 'board'} className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}>Explore</button>
-        <button role="tab" aria-selected={view === 'yearly'} className={view === 'yearly' ? 'on' : ''} onClick={() => setView('yearly')}>Yearly</button>
-        <button role="tab" aria-selected={view === 'list'} className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button>
+      <div className="view-switch" role="tablist" aria-label="View" onKeyDown={onTabKeys}>
+        {VIEWS.map(([id, label]) => (
+          <button key={id} id={`tab-${id}`} role="tab" aria-selected={view === id} aria-controls="view-panel"
+            tabIndex={view === id ? 0 : -1} className={view === id ? 'on' : ''} onClick={() => setView(id)}>{label}</button>
+        ))}
       </div>
+
+      <div role="tabpanel" id="view-panel" aria-labelledby={`tab-${view}`}>
 
       {view === 'board' && (
         <Board subs={subs} monthly={monthly} saved={saved} stateOf={stateOf} costOf={s => monthlyBase(s, base, rates) ?? 0} money={money} daysUntil={daysUntil} onOpen={setDetail} onScan={() => fileRef.current?.click()} />
@@ -291,6 +341,7 @@ export default function App() {
         <YearlyView subs={subs} base={base} rates={rates} money={money} sort={yearlySort} onSort={setYearlySort}
           onToggle={toggleSelect} onClear={clearSelection} onUsed={s => markUsed(s.id!)} onOpen={setDetail} />
       )}
+      </div>
 
       {needRates.length > 0 && view !== 'yearly' && (
         <section className="card warn" aria-label="Exchange rate needed">
@@ -300,7 +351,7 @@ export default function App() {
         </section>
       )}
       {settings.ratesNeedReview && (
-        <p className="notice" role="status">Base currency changed to {base}. Please review your exchange rates. <button className="link" onClick={goToRates}>Review rates</button></p>
+        <p className="notice">Base currency changed to {base}. Please review your exchange rates. <button className="link" onClick={goToRates}>Review rates</button></p>
       )}
 
       {zombies.length > 0 && (
@@ -446,14 +497,16 @@ export default function App() {
       <CurrencySettings base={base} rates={rates} subs={subs} needReview={settings.ratesNeedReview}
         onBase={changeBase} onRate={changeRate} onReviewed={ratesReviewed} />
 
+      <AppSettingsCard pwa={pwa} version={__APP_VERSION__} hasSubscriptions={subs.length > 0} sampleLoaded={settings.sampleIds.length > 0}
+        onInstall={installApp} onLoadSample={loadSample} onRemoveSample={removeSample} />
+
       <section className="card">
         <h2>Backup</h2>
         <p className="muted">Save everything to a file you control, or restore it later. Nothing is uploaded.</p>
         <div className="actions">
           <button className="btn" onClick={downloadBackup}>Download backup</button>
-          <label className="btn">Restore from backup
-            <input ref={backupRef} type="file" accept=".json,application/json" hidden onChange={e => onBackupFile(e.target.files?.[0])} />
-          </label>
+          <button className="btn" onClick={() => backupRef.current?.click()}>Restore from backup</button>
+          <input ref={backupRef} type="file" accept=".json,application/json" hidden tabIndex={-1} aria-label="Backup file to restore" onChange={e => onBackupFile(e.target.files?.[0])} />
         </div>
       </section>
 
@@ -471,16 +524,21 @@ export default function App() {
       {cancelFor && <CancelFlow sub={cancelFor} onSave={f => startCancel(cancelFor, f)} onClose={() => setCancelFor(null)} onText={(title, text) => setTextModal({ title, text })} />}
       {textModal && <TextModal title={textModal.title} text={textModal.text} onClose={() => setTextModal(null)} />}
       {editing && <EditForm sub={editing} base={base} onSave={save} onCancel={() => setEditing(null)} />}
+      </main>
+      <button className="fab" onClick={() => setEditing(blank(base))}>+ Add subscription</button>
       <footer>Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
     </div>
   );
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useModalA11y(box, onClose);
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
-        <div className="row"><h2>{title}</h2><button className="link" onClick={onClose} aria-label="Close">✕</button></div>
+      <div ref={box} className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
+        <div className="row"><h2 id={titleId}>{title}</h2><button className="link" onClick={onClose} aria-label="Close dialog">✕</button></div>
         {children}
       </div>
     </div>
@@ -561,7 +619,7 @@ function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: st
       <form onSubmit={e => { e.preventDefault(); onSave({ ...s, currency: s.currency ?? base, category: s.category || guessCategory(s.name) }); }} className="form">
         <label>Name<input required value={s.name} onChange={e => set('name', e.target.value)} /></label>
         <div className="two">
-          <label>Amount<input required type="number" min="0.01" step="0.01" value={s.amount || ''} onChange={e => set('amount', +e.target.value)} /></label>
+          <label>Amount<input required type="number" inputMode="decimal" min="0.01" step="0.01" value={s.amount || ''} onChange={e => set('amount', +e.target.value)} /></label>
           <label>Currency
             <select value={s.currency ?? base} onChange={e => set('currency', e.target.value)}>
               {[...new Set([s.currency ?? base, base, ...CURRENCIES.map(c => c.code)])].map(c => <option key={c}>{c}</option>)}

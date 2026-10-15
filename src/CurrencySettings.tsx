@@ -46,7 +46,7 @@ export default function CurrencySettings({ base, rates, subs, needReview, onBase
       {inUse.length === 0
         ? <p className="muted">All your subscriptions are in {base}, so no rates are needed.</p>
         : (
-          <table className="rates">
+          <div className="rates-wrap"><table className="rates">
             <thead><tr><th scope="col">Currency</th><th scope="col">Rate</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {inUse.map(code => {
@@ -68,7 +68,7 @@ export default function CurrencySettings({ base, rates, subs, needReview, onBase
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       {bad && <p className="error" role="alert">{bad}</p>}
     </section>

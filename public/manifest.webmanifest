@@ -1,1 +1,19 @@
-{"name":"SubSweep","short_name":"SubSweep","description":"Find and track forgotten subscriptions, privately.","start_url":"/","display":"standalone","background_color":"#f8fafc","theme_color":"#0f766e","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{
+  "id": "/",
+  "name": "SubSweep",
+  "short_name": "SubSweep",
+  "description": "Find, track and cancel forgotten subscriptions. Everything stays on your device.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060708",
+  "theme_color": "#060708",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
