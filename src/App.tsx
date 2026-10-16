@@ -1,9 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from './db';
 import { CURRENCIES } from './currency';
-import { CATEGORIES, isLive, type Cycle, type Detected, type Subscription } from './types';
-import { detectRecurring, monthlyCost, nextOnOrAfter, parseStatementDetailed } from './detect';
-import { findDuplicates, groupPairKeys, isAlreadyTracked, mergeSubscriptions } from './dedupe';
+import { CATEGORIES, CYCLES, CYCLE_LABEL, CYCLE_SHORT, isLive, type Cycle, type Subscription } from './types';
+import { confidenceLabel, detectRecurring, monthlyCost, nextOnOrAfter, parseStatementDetailed } from './detect';
+import { findDuplicates, groupPairKeys, mergeSubscriptions } from './dedupe';
 import { backupFileName, exportBackup, importBackup, parseBackup, type ImportMode } from './backup';
 import { buildIcs } from './ics';
 import { cancelKit, cancelEmail, chatScript, disputeMessage, ctxOf, DIFFICULTY_LABEL } from './cancelKit';
@@ -17,14 +17,22 @@ import LiveRegion from './LiveRegion';
 import AppSettingsCard from './AppSettings';
 import { applyUpdate, promptInstall, usePwa } from './pwa';
 import { loadSampleData, removeSampleData } from './sampleData';
-import { modalDepth, nextTabIndex, useModalA11y } from './a11y';
+import { modalDepth, nextTabIndex } from './a11y';
+import Modal from './Modal';
+import Toast from './Toast';
+import ImportReview from './ImportReview';
+import ReminderMenu, { reminderStatus } from './ReminderMenu';
+import ReminderSettings from './ReminderSettings';
+import { addedMessage, buildPreview, idsInBatch, newBatchId, selectedItems, toSubscriptions, type PreviewItem } from './importPreview';
+import { freshReminders, getDueReminders, notificationText, soonestLabel, staleKeys, whenText } from './reminders';
+import { dayDiff, localDate } from './dates';
 import { convert, formatMoney } from './currency';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type AppSettings } from './settings';
 import { categoryYearly, missingCurrencies, monthlyBase, subCurrency, totals as calcTotals, yearlyCost } from './savings';
 import { getInsights, visibleInsights, type Insight } from './insights';
 
-const today = () => new Date().toISOString().slice(0, 10);
-const daysUntil = (d: string) => Math.round((+new Date(d + 'T00:00:00Z') - +new Date(today() + 'T00:00:00Z')) / 86400000);
+const today = () => localDate(); // the user's local calendar date, never UTC
+const daysUntil = (d: string) => dayDiff(today(), d);
 const blank = (currency: string): Subscription => ({ name: '', amount: 0, cycle: 'monthly', nextRenewal: today(), category: 'Other', isTrial: false, currency });
 
 function guessCategory(name: string): string {
@@ -47,7 +55,8 @@ const VIEWS = [['board', 'Explore'], ['yearly', 'Yearly'], ['list', 'List']] as 
 export default function App() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [editing, setEditing] = useState<Subscription | null>(null);
-  const [found, setFound] = useState<(Detected & { keep: boolean })[] | null>(null);
+  const [preview, setPreview] = useState<PreviewItem[] | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string; actionLabel: string; durationMs: number; onAction: () => void } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [view, setView] = useState<'board' | 'list' | 'yearly'>(() => (typeof window !== 'undefined' && window.innerWidth < 720 ? 'list' : 'board'));
@@ -82,15 +91,25 @@ export default function App() {
         if (rolled !== s.nextRenewal) await db.subs.update(s.id!, { nextRenewal: rolled });
       }
     })();
-    if (notifState === 'granted') {
-      const key = 'subsweep-notified-' + today();
-      if (!localStorage.getItem(key)) {
-        const due = subs.filter(s => isLive(s) && daysUntil(s.nextRenewal) >= 0 && daysUntil(s.nextRenewal) <= 3);
-        due.forEach(s => new Notification(`${s.isTrial ? 'Trial ends' : 'Renews'} soon: ${s.name}`, { body: `${money(s.amount, s.currency)} on ${s.nextRenewal}` }));
-        localStorage.setItem(key, '1');
-      }
-    }
-  }, [subs.length, notifState]);
+    }, [subs.length]);
+
+  // Reminders: window-aware, and each (subscription, renewal date, window) is shown at most once. The check-and-record
+  // runs in one transaction, so two quick runs (React StrictMode, a fast re-render) can never both fire it.
+  useEffect(() => {
+    if (!subs.length || notifState !== 'granted') return;
+    (async () => {
+      const due = getDueReminders(subs, settings, today());
+      if (!due.length) return;
+      const fresh = await db.transaction('rw', db.notifiedReminders, async () => {
+        const rows = await db.notifiedReminders.toArray();
+        const toShow = freshReminders(due, rows.map(r => r.key));
+        await db.notifiedReminders.bulkPut(toShow.map(d => ({ key: d.key, renewalDate: d.sub.nextRenewal, at: new Date().toISOString() })));
+        await db.notifiedReminders.bulkDelete(staleKeys(rows, today()));
+        return toShow;
+      });
+      for (const r of fresh) { const t = notificationText(r, money(r.sub.amount, r.sub.currency)); new Notification(t.title, { body: t.body }); }
+    })().catch(err => console.warn('SubSweep: could not show reminders', err));
+  }, [subs, settings.reminderDays, notifState]);
 
   const stateOf = (s: Subscription): CancelState => cancelState(s, today());
   const tot = useMemo(() => calcTotals(subs, base, rates), [subs, base, rates]);
@@ -112,7 +131,7 @@ export default function App() {
     () => visibleInsights(getInsights(subs, today(), { base, rates }), settings.dismissedInsights),
     [subs, base, rates, settings.dismissedInsights]);
   const duplicateGroups = useMemo(() => findDuplicates(subs, dismissed), [subs, dismissed]);
-  const upcoming = subs.filter(s => isLive(s) && daysUntil(s.nextRenewal) <= 7 && daysUntil(s.nextRenewal) >= 0);
+  const dueList = useMemo(() => getDueReminders(subs, settings, today()), [subs, settings.reminderDays]);
 
   async function onFile(f: File | undefined) {
     setError(''); setNotice('');
@@ -128,28 +147,42 @@ export default function App() {
         cancelMsgs.push(c.outcome === 'verified' ? `Verified: ${name} is no longer charging you.` : `Still charging: ${name} billed you after you cancelled.`);
       }
       if (cancelMsgs.length) { await load(); }
-      const all = detectRecurring(txns);
-      const det = all.filter(d => !isAlreadyTracked(d.name, subs));
-      const tracked = all.length - det.length;
-      const info = [skippedRows ? `${skippedRows} row${skippedRows > 1 ? 's' : ''} skipped` : '', tracked ? `${tracked} already tracked` : ''].filter(Boolean).join(' · ');
+      const items = buildPreview(detectRecurring(txns), subs, guessCategory, base);
+      const tracked = items.filter(i => i.alreadyTracked).length;
+      const fresh = items.length - tracked;
       setScanInfo({ skipped: skippedRows, tracked });
       if (cancelMsgs.length) setNotice(cancelMsgs.join(' '));
-      if (!det.length) {
-        if (tracked && !cancelMsgs.length) setNotice(`Nothing new to add. ${info}.`);
-        else if (!tracked && !cancelMsgs.length) setError(`No recurring charges found. Statements covering 3+ months work best.${skippedRows ? ` ${info}.` : ''}`);
+      if (!items.length) {
+        if (!cancelMsgs.length) setError(`No recurring charges found. Statements covering 3+ months work best.${skippedRows ? ` ${skippedRows} row${skippedRows > 1 ? 's' : ''} skipped.` : ''}`);
+      } else if (!fresh) {
+        if (!cancelMsgs.length) setNotice(`Nothing new to add. ${tracked} already tracked${skippedRows ? ` · ${skippedRows} row${skippedRows > 1 ? 's' : ''} skipped` : ''}.`);
+      } else {
+        setPreview(items); // review first; nothing is written until the user adds it
       }
-      setFound(det.length ? det.map(d => ({ ...d, keep: true })) : null);
     } catch (e) { setError((e as Error).message); }
     if (fileRef.current) fileRef.current.value = '';
   }
 
-  async function importFound() {
-    const rows = (found ?? []).filter(d => d.keep).map<Subscription>(d => ({
-      name: d.name, amount: d.amount, cycle: d.cycle, nextRenewal: d.nextRenewal,
-      category: guessCategory(d.name), isTrial: false, priceCreep: d.priceCreep, createdAt: new Date().toISOString(), currency: d.currency ?? base,
-    }));
+  function showToast(message: string, actionLabel: string, durationMs: number, onAction: () => void) {
+    setToast({ id: Date.now(), message, actionLabel, durationMs, onAction });
+    setNotice(message); // announced politely by the live region; the toast itself is not a live region
+  }
+
+  async function addFromPreview() {
+    if (!preview) return;
+    const batch = newBatchId();
+    const rows = toSubscriptions(preview, batch, new Date().toISOString(), today());
+    if (!rows.length) return;
     await db.subs.bulkAdd(rows);
-    setFound(null); load();
+    setPreview(null);
+    await load();
+    showToast(addedMessage(rows.length), 'Undo', 30000, async () => {
+      // remove exactly the rows this import added, and nothing else
+      const ids = idsInBatch(await db.subs.toArray(), batch);
+      await db.subs.bulkDelete(ids);
+      setToast(null); setNotice(`Undid the import: removed ${ids.length} subscription${ids.length === 1 ? '' : 's'}.`);
+      await load();
+    });
   }
 
   async function save(s: Subscription) {
@@ -158,7 +191,24 @@ export default function App() {
     row.id ? await db.subs.put(row) : await db.subs.add({ ...row, createdAt: new Date().toISOString() });
     setEditing(null); load();
   }
-  async function remove(id: number) { if (confirm('Remove this subscription?')) { await db.subs.delete(id); load(); } }
+  async function remove(id: number) {
+    const row = subs.find(x => x.id === id);
+    if (!row) return;
+    await db.subs.delete(id);
+    await load();
+    showToast(`Removed ${row.name}.`, 'Undo', 10000, async () => {
+      await db.subs.put(row); // same id and every field, so it comes back exactly as it was
+      setToast(null); setNotice(`Restored ${row.name}.`);
+      await load();
+    });
+  }
+  async function patchSub(id: number, patch: Partial<Subscription>) { await db.subs.update(id, patch); await load(); }
+  async function setReminderDay(days: number, on: boolean) {
+    const next = on ? [...new Set([...settings.reminderDays, days])].sort((x, y) => x - y) : settings.reminderDays.filter(d => d !== days);
+    await saveSetting('reminderDays', next);
+    await load();
+  }
+  async function dismissReminderBanner() { await saveSetting('reminderBannerDismissed', true); await load(); }
 
   async function startCancel(s: Subscription, f: { requestedAt: string; effectiveDate: string; ref: string }) {
     const { verifiedAt: _v, ...rest } = s;
@@ -278,12 +328,12 @@ export default function App() {
   }
   async function askNotif() { if (typeof Notification !== 'undefined') setNotifState(await Notification.requestPermission()); }
 
-  const cycleShort = (c: Cycle) => ({ weekly: 'wk', monthly: 'mo', quarterly: 'qtr', yearly: 'yr' })[c];
-  const scanInfoText = [scanInfo.skipped ? `${scanInfo.skipped} row${scanInfo.skipped > 1 ? 's' : ''} skipped` : '', scanInfo.tracked ? `${scanInfo.tracked} already tracked` : ''].filter(Boolean).join(' · ');
+  const cycleShort = (c: Cycle) => CYCLE_SHORT[c];
 
   return (
     <div className="app">
       <a className="skip" href="#main">Skip to content</a>
+      {toast && <Toast key={toast.id} message={toast.message} actionLabel={toast.actionLabel} durationMs={toast.durationMs} onAction={toast.onAction} onDismiss={() => setToast(null)} />}
       {pwa.updateReady && (
         <div className="banner update" role="status">
           <span>A new version of SubSweep is ready.</span>
@@ -308,6 +358,12 @@ export default function App() {
         <div className="banner sample" role="note">
           <span>You're looking at fake sample data.</span>
           <button className="btn" onClick={removeSample}>Remove sample data</button>
+        </div>
+      )}
+      {notifState === 'denied' && !settings.reminderBannerDismissed && (
+        <div className="banner" role="note">
+          <span>Browser notifications are blocked, so reminders show here in SubSweep only.</span>
+          <button className="btn" onClick={dismissReminderBanner}>Got it</button>
         </div>
       )}
       {error && <p className="error">{error}</p>}
@@ -387,14 +443,14 @@ export default function App() {
         </section>
       )}
 
-      {view !== 'yearly' && upcoming.length > 0 && (
-        <section aria-label="Renewing in the next 7 days">
-          <h2>Renewing this week</h2>
+      {view !== 'yearly' && dueList.length > 0 && (
+        <section aria-labelledby="renewing-soon-title">
+          <h2 id="renewing-soon-title">{soonestLabel(dueList)}</h2>
           <div className="chips">
-            {upcoming.map(s => (
-              <button key={s.id} className="chip" onClick={() => setDetail(s)}>
-                <BrandLogo name={s.name} size={34} />
-                <span><b>{s.name}</b><small>{money(s.amount, s.currency)} · {daysUntil(s.nextRenewal) === 0 ? 'today' : `in ${daysUntil(s.nextRenewal)}d`}{s.isTrial && ' · trial ends'}</small></span>
+            {dueList.map(d => (
+              <button key={d.key} className="chip" onClick={() => setDetail(d.sub)}>
+                <BrandLogo name={d.sub.name} size={34} />
+                <span><b>{d.sub.name}</b><small>{money(d.sub.amount, d.sub.currency)} · {whenText(d.daysLeft)}{d.trial && ' · trial ends'}</small></span>
               </button>
             ))}
           </div>
@@ -424,7 +480,8 @@ export default function App() {
                 <BrandLogo name={s.name} size={48} />
                 <div>
                   <h3>{s.name} {s.isTrial && <span className="pill trial">trial</span>}{stateOf(s) !== 'active' && <span className={`pill st-${stateOf(s)}`}>{STATE_LABEL[stateOf(s)]}</span>}</h3>
-                  <p className="muted">{s.category} · {s.cycle} · next {s.nextRenewal} ({daysUntil(s.nextRenewal)}d)</p>
+                  <p className="muted">{s.category} · {CYCLE_LABEL[s.cycle].toLowerCase()} · next {s.nextRenewal} ({daysUntil(s.nextRenewal)}d)
+                    {s.confidence !== undefined && <> · <span className={`conf conf-${confidenceLabel(s.confidence)}`} title={`Detected from a statement with ${Math.round(s.confidence * 100)}% confidence`}>{confidenceLabel(s.confidence)}</span></>}</p>
                   {s.priceCreep && <p className="creep">Price crept up: {money(s.priceCreep.from, s.currency)} → {money(s.priceCreep.to, s.currency)}</p>}
                 </div>
               </div>
@@ -434,6 +491,7 @@ export default function App() {
             </div>
             {isLive(s) && <details><summary>How to cancel</summary><p className="muted">{cancelKit(s.name).steps}</p></details>}
             <div className="row-actions">
+              {isLive(s) && <ReminderMenu sub={s} now={today()} onChange={patch => patchSub(s.id!, patch)} />}
               <button className="link" onClick={() => setDetail(s)}>{isLive(s) ? 'Cancel…' : 'Status'}</button>
               <button className="link" onClick={() => setEditing(s)}>Edit</button>
               <button className="link danger" onClick={() => remove(s.id!)}>Remove</button>
@@ -442,20 +500,9 @@ export default function App() {
         ))}
       </section>}
 
-      {found && (
-        <Modal onClose={() => setFound(null)} title={`Found ${found.length} recurring charge${found.length > 1 ? 's' : ''}`}>
-          <p className="muted">Untick anything that isn't a subscription.{scanInfoText && ` ${scanInfoText}.`}</p>
-          <ul className="plain">
-            {found.map((d, i) => (
-              <li key={d.name}>
-                <label className="with-logo"><input type="checkbox" checked={d.keep} onChange={e => setFound(found.map((x, j) => j === i ? { ...x, keep: e.target.checked } : x))} />
-                  <BrandLogo name={d.name} size={34} />
-                  <span><b>{d.name}</b> · {money(d.amount, d.currency)} {d.cycle} · seen {d.occurrences}×{d.priceCreep && <span className="creep"> · price up {money(d.priceCreep.from, d.currency)}→{money(d.priceCreep.to, d.currency)}</span>}</span></label>
-              </li>
-            ))}
-          </ul>
-          <button className="btn primary" onClick={importFound}>Add selected</button>
-        </Modal>
+      {preview && (
+        <ImportReview items={preview} skipped={scanInfo.skipped} tracked={scanInfo.tracked} money={money}
+          onChange={setPreview} onAdd={addFromPreview} onCancel={() => setPreview(null)} />
       )}
 
       {detail && (
@@ -464,7 +511,7 @@ export default function App() {
             <BrandLogo name={detail.name} size={72} />
             <div>
               <div className="price">{money(detail.amount, detail.currency)}<small>/{cycleShort(detail.cycle)}</small></div>
-              <p className="muted">{detail.category} · {detail.cycle}{detail.isTrial && ' · free trial'}</p>
+              <p className="muted">{detail.category} · {CYCLE_LABEL[detail.cycle].toLowerCase()}{detail.isTrial && ' · free trial'}</p>
             </div>
           </div>
           <p>Next {detail.isTrial ? 'trial end' : 'renewal'}: <b>{detail.nextRenewal}</b> ({daysUntil(detail.nextRenewal)}d)</p>
@@ -473,6 +520,13 @@ export default function App() {
               ? <p className="error">Set an exchange rate for {subCurrency(detail, base)} to see what this costs in {base}. <button className="link" onClick={() => { setDetail(null); goToRates(); }}>Set rate</button></p>
               : <p className="muted">That's about {money(m)} a month, {money(m * 12)} a year{detail.isTrial ? ' once the trial converts' : ''}.</p>; })()}
           {detail.lastUsedAt && <p className="muted">You last marked this used on {detail.lastUsedAt}.</p>}
+          {(detail.priceHistory?.length ?? 0) > 1 && (
+            <details className="history">
+              <summary>Price history ({detail.priceHistory!.length} prices)</summary>
+              <ol className="plain">{detail.priceHistory!.map(h => <li key={h.date + h.amount}><span className="muted">{h.date || 'earlier'}</span> · <b>{money(h.amount, detail.currency)}</b></li>)}</ol>
+            </details>
+          )}
+          {isLive(detail) && <div className="row-actions" style={{ justifyContent: 'flex-start' }}><ReminderMenu sub={detail} now={today()} onChange={async patch => { await patchSub(detail.id!, patch); setDetail({ ...detail, ...patch }); }} /></div>}
           {detail.priceCreep && <p className="creep">Price crept up: {money(detail.priceCreep.from, detail.currency)} → {money(detail.priceCreep.to, detail.currency)}</p>}
           <DetailStatus s={detail} state={stateOf(detail)} money={n => money(n, detail.currency)} />
           {isLive(detail) && (() => { const k = cancelKit(detail.name); return (
@@ -496,6 +550,8 @@ export default function App() {
 
       <CurrencySettings base={base} rates={rates} subs={subs} needReview={settings.ratesNeedReview}
         onBase={changeBase} onRate={changeRate} onReviewed={ratesReviewed} />
+
+      <ReminderSettings windows={settings.reminderDays} notifState={notifState} onToggle={setReminderDay} onAskPermission={askNotif} />
 
       <AppSettingsCard pwa={pwa} version={__APP_VERSION__} hasSubscriptions={subs.length > 0} sampleLoaded={settings.sampleIds.length > 0}
         onInstall={installApp} onLoadSample={loadSample} onRemoveSample={removeSample} />
@@ -527,20 +583,6 @@ export default function App() {
       </main>
       <button className="fab" onClick={() => setEditing(blank(base))}>+ Add subscription</button>
       <footer>Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
-    </div>
-  );
-}
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  const box = useRef<HTMLDivElement>(null);
-  const titleId = useId();
-  useModalA11y(box, onClose);
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div ref={box} className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
-        <div className="row"><h2 id={titleId}>{title}</h2><button className="link" onClick={onClose} aria-label="Close dialog">✕</button></div>
-        {children}
-      </div>
     </div>
   );
 }
@@ -627,8 +669,7 @@ function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: st
         </div>
         <label>Billing cycle
           <select value={s.cycle} onChange={e => set('cycle', e.target.value as Cycle)}>
-            <option value="weekly">Weekly</option><option value="monthly">Monthly</option>
-            <option value="quarterly">Quarterly</option><option value="yearly">Yearly</option>
+            {CYCLES.map(c => <option key={c} value={c}>{CYCLE_LABEL[c]}</option>)}
           </select></label>
         <label>Next renewal / trial end<input required type="date" value={s.nextRenewal} onChange={e => set('nextRenewal', e.target.value)} /></label>
         <label>Category

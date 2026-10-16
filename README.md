@@ -10,13 +10,14 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 **Everything stays in your browser.** Statements are parsed on your device, subscriptions are stored in IndexedDB, and nothing is uploaded. There are no accounts, no analytics, no third-party scripts, fonts or logo services, and no live exchange-rate lookups (you type rates in yourself). The deployed site ships a strict Content-Security-Policy (`default-src 'self'`) so the page cannot talk to anyone else even if something went wrong. Backups are files you download and keep.
 
 ## Features
-- Scan a bank or card statement CSV: finds recurring charges (weekly, monthly, quarterly, yearly) and flags price creep
+- Scan a bank or card statement CSV: finds recurring charges (weekly, every 2 weeks, monthly, quarterly, yearly), scores how sure it is, and tracks price changes over time
+- Review before anything is saved: a preview with confidence chips and editable fields, and Undo for the import (and for deletes)
 - Manual add and edit, free-trial flag, categories, brand logos (bundled, never fetched)
 - Possible-duplicates banner: similar subscriptions can be merged (only when you click) or dismissed
 - Multi-currency totals with manual exchange rates, a yearly cost view, a "what you'd save" simulator, and overlap / unused insights
 - Cancel & verify: a cancellation kit per service, tracking of what you cancelled, a check that charges really stopped and a dispute message if they did not
 - JSON backup and restore (Merge or Replace)
-- Reminders: browser notifications (when the app is opened) and an `.ics` calendar export with 1-day-before alarms
+- Reminders: choose 1, 3 or 7 days before a renewal, mute or snooze any subscription, plus an `.ics` calendar export with 1-day-before alarms
 - Installable PWA that works offline, with a safe in-app update prompt
 - Keyboard-operable, screen-reader friendly, light and dark themes, phone-friendly layout
 
@@ -30,6 +31,10 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 | ![Cancellation kit](docs/screenshots/cancel-kit.png) | ![Still being charged banner](docs/screenshots/still-charging.png) |
 | **Scan a statement.** Recurring charges are found for you, with price creep called out. | **Missing rates are never ignored.** The item is left out of totals and you are told. |
 | ![Statement scan results](docs/screenshots/scan-results.png) | ![Missing exchange rate warning](docs/screenshots/missing-rate.png) |
+| **Review before adding.** Cycle, confidence and price changes for every find; nothing is saved yet. | **Reminders.** Pick 1, 3 and 7 days; mute or snooze from each subscription's bell. |
+| ![Import preview with confidence chips](docs/screenshots/import-preview.png) | ![Reminder settings](docs/screenshots/desktop-reminders.png) |
+| **Price history** for each subscription, built from your statements. | **The bell.** Mute, or snooze for a day, three days or a week. |
+| ![Price history](docs/screenshots/price-history.png) | ![Reminder bell menu](docs/screenshots/reminder-menu.png) |
 | **Settings.** Base currency, manual rates, install, sample data. | **Light theme.** Follows your system setting. |
 | ![Settings](docs/screenshots/desktop-settings.png) | ![Light theme](docs/screenshots/light-theme.png) |
 
@@ -50,6 +55,7 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 Open the **App** card (near the bottom) and choose **Load sample data**. It asks first, adds clearly labelled fake subscriptions in INR, USD and EUR, and shows a banner while they are loaded. It only works in an empty SubSweep so it can never mix with your own data, and **Remove sample data** deletes exactly those rows again. It shows insights, a verified cancellation, a still-charging one and a trial about to end.
 
 Other samples in [`sample-data/`](sample-data):
+- [`mixed-cycles.csv`](sample-data/mixed-cycles.csv): weekly, every-2-weeks, monthly (with a price rise), quarterly and yearly charges plus grocery and fuel noise, a refund and a salary; the best one to try the review step on
 - [`us-credit-card.csv`](sample-data/us-credit-card.csv), [`indian-bank.csv`](sample-data/indian-bank.csv): use **Scan statement**
 - [`cancel-zombie-charge.csv`](sample-data/cancel-zombie-charge.csv), [`cancel-verified.csv`](sample-data/cancel-verified.csv): scan one after starting to cancel a service
 - [`demo-backup.json`](sample-data/demo-backup.json): restore with **Restore from backup**
@@ -70,6 +76,7 @@ End-to-end checks of the production build (need Chrome or Edge installed; `playw
 npm run build && npm run preview:prod         # terminal 1
 node scripts/verify-prod.mjs                  # terminal 2: headers/CSP, keyboard, dialogs, no overflow at 320-1280px, offline cold start
 node scripts/verify-update.mjs                # service worker update flow (banner, no auto-reload, data untouched)
+node scripts/verify-features.mjs              # import preview and undo, reminders (windows, mute, snooze, no duplicates), upgrade, backup, offline
 npm run screenshots                           # regenerate docs/screenshots
 npm run icons                                 # re-render the PNG icons from public/icon.svg
 npm run contrast                              # print the contrast ratios for the colour tokens
@@ -92,6 +99,23 @@ Any other static host works too; copy the headers from `vercel.json`. The CSP ke
 
 ## Accessibility
 Keyboard-only use works throughout: a skip link, real tabs (arrow keys, Home, End), dialogs that trap focus, close on Escape and return focus, visible focus rings, labelled controls, and live regions for status messages. Text meets WCAG AA contrast in both themes and tap targets are at least 44x44px on phones. On the production build, Lighthouse scores Accessibility 100 and axe-core reports no violations (WCAG 2.2 A/AA) in light and dark at desktop and phone widths.
+
+## How detection works
+SubSweep groups charges by merchant and looks at the gaps between them. The median gap picks the cycle: weekly (7 ±1 days), every 2 weeks (14 ±2), monthly (28-31 ±3), quarterly (90 ±6) or yearly (365 ±10), and most gaps must agree. Month-end drift (the 31st, then the 28th) is still monthly. Rules that keep it honest:
+- A single charge is never a subscription, and refunds and credits are ignored.
+- Two identical charges on the same day count once; two *different* amounts from one merchant on the same days are tracked separately.
+- A change of price (up to 2x) keeps the same subscription and adds an entry to its **price history**; the "price crept up" flag comes from that history.
+- Each find gets a **confidence** from 0 to 1: how many times it repeated (30%), how regular the gaps are (25%), how consistent the amount is (30%) and whether the last charge is recent (15%). **High** is 0.75 and up, **Medium** 0.5 to 0.75, **Low** below that. Erratic amounts are always Low, a yearly charge seen only twice stops at Medium, and two weekly or biweekly sightings are Low, so grocery and fuel trips do not pass as subscriptions.
+
+## Review before adding, and undo
+Scanning a statement opens a review dialog and saves nothing. Rows are sorted by confidence; High and Medium are ticked and Low is not. You can change the name, amount, cycle and category of any row, see how many rows were skipped and how many you already track (shown unticked and disabled), and then choose **Add N selected** (disabled when nothing is ticked). Closing the dialog throws the preview away.
+
+After adding, an **Undo** toast stays for 30 seconds and removes exactly the subscriptions that import added, nothing else. Removing a subscription shows an Undo toast for 10 seconds. Press Ctrl/Cmd+Z while a toast is showing, or Tab once after the skip link. Undo covers the most recent action and does not survive closing the tab.
+
+## Reminders
+In the **Reminders** card choose any of 1, 3 and 7 days before a renewal (default 7). Each subscription has a bell: **Mute reminders**, or **Snooze** for 1 day, 3 days or a week; a snooze ends by itself on its date. Muted and snoozed subscriptions are left out of reminders but still count in your totals. A free trial ending within 3 days always reminds you unless it is muted or snoozed. Dates use your local calendar, not UTC.
+
+The "Renewing soon" list follows your windows and says how soon the next one is. Browser notifications fire when you open SubSweep; each reminder (subscription, renewal date and window) is shown once, even after reloads, and a tighter window later is a new reminder. If notifications are blocked, SubSweep says so once (you can dismiss it) and the in-app list still works.
 
 ## Supported CSV formats
 - **Columns** (case-insensitive): date = Date / Transaction Date / Posting Date / Value Date; description = Description / Narration / Details / Merchant / Payee / Particulars; amount = a single signed Amount, separate Debit + Credit (or Withdrawal + Deposit) columns, or Amount + a Dr/Cr column; an optional Currency column.
@@ -123,7 +147,8 @@ Use **Download backup** to save `subsweep-backup-YYYY-MM-DD.json` (subscriptions
 - Browser notifications fire only when the app is opened (a true background push needs a server, which SubSweep deliberately does not have); the `.ics` export covers background reminders.
 - Data lives in one browser on one device. Use backups to move or protect it, and note that clearing site data deletes it.
 - Exchange rates are manual and not updated for you.
-- Detection works from statement patterns, so a charge needs to repeat (two or more times) to be recognised, and merchant names are shortened to their first meaningful word.
+- Detection works from statement patterns, so a charge needs to repeat (two or more times) to be recognised, and merchant names are shortened to their first meaningful word. A confidence score is a guide, not a guarantee, which is why you review before adding.
+- Undo covers only the most recent import or delete and does not survive closing the tab.
 - Direct cancellation links and steps are best-effort and can go stale.
 - Brand logos are bundled for around 50 services; others get a coloured monogram. Trademarks belong to their owners.
 

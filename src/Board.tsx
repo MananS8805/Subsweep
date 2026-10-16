@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { Subscription } from './types';
+import { CYCLE_SHORT, type Subscription } from './types';
 import type { CancelState } from './zombie';
 import BrandLogo from './BrandLogo';
 
@@ -114,7 +114,7 @@ export default function Board({ subs, monthly, saved, stateOf, costOf, money, da
             {BADGE[stateOf(s)] && <span className={`badge st-${stateOf(s)}`}>{BADGE[stateOf(s)]}</span>}
             <BrandLogo name={s.name} size={Math.round(size * 0.42)} />
             <span className="t-name">{s.name}{s.isTrial && <em className="pill trial">trial</em>}</span>
-            <span className="t-price">{money(s.amount, s.currency)}<small>/{s.cycle === 'monthly' ? 'mo' : s.cycle === 'yearly' ? 'yr' : s.cycle === 'weekly' ? 'wk' : 'qtr'}</small></span>
+            <span className="t-price">{money(s.amount, s.currency)}<small>/{CYCLE_SHORT[s.cycle]}</small></span>
             <span className="t-next">{stateOf(s) !== 'active' ? (s.cancelEffectiveDate ? `paid to ${s.cancelEffectiveDate}` : '') : daysUntil(s.nextRenewal) <= 0 ? 'renews today' : `in ${daysUntil(s.nextRenewal)}d`}</span>
           </button>
         ))}

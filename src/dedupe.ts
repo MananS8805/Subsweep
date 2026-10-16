@@ -83,12 +83,15 @@ export function mergeSubscriptions(group: Subscription[]): { keep: Subscription;
   if (group.length < 2) throw new Error('Nothing to merge.');
   const sorted = [...group].sort(byAge);
   const oldest = sorted[0], newest = sorted[sorted.length - 1];
-  const history = new Map<string, { date: string; amount: number }>();
-  const addHistory = (date: string, amount: number) => { history.set(`${date}|${amount}`, { date, amount }); };
-  for (const s of sorted) {
-    s.priceHistory?.forEach(h => addHistory(h.date, h.amount));
-    if (s !== newest && s.amount !== newest.amount) addHistory((s.createdAt ?? '').slice(0, 10), s.amount);
-  }
+  // priceHistory lists every distinct price over time, current one last. Merge all records' histories, then make
+  // sure the newest record's price is the final entry.
+  const day = (s: Subscription) => (s.createdAt ?? '').slice(0, 10);
+  const entries = sorted.flatMap(s => s.priceHistory?.length ? s.priceHistory : [{ date: day(s), amount: s.amount }]);
+  const merged = entries
+    .filter((e, i) => entries.findIndex(x => x.date === e.date && x.amount === e.amount) === i)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .filter((e, i, all) => i === 0 || e.amount !== all[i - 1].amount);
+  if (merged[merged.length - 1]?.amount !== newest.amount) merged.push({ date: day(newest), amount: newest.amount });
   const keep: Subscription = {
     ...oldest,
     amount: newest.amount,
@@ -101,7 +104,7 @@ export function mergeSubscriptions(group: Subscription[]): { keep: Subscription;
   };
   if (oldest.createdAt) keep.createdAt = oldest.createdAt;
   else delete keep.createdAt;
-  if (history.size) keep.priceHistory = [...history.values()].sort((a, b) => a.date.localeCompare(b.date));
+  if (merged.length > 1) keep.priceHistory = merged;
   if (keep.notes === undefined) delete keep.notes;
   return { keep, removeIds: sorted.slice(1).map(s => s.id!) };
 }

@@ -61,7 +61,7 @@ h3{margin:0;font-size:1.05rem}
 .creep{color:var(--warn);font-size:.85rem;margin:2px 0}
 .row-actions{display:flex;gap:12px;justify-content:flex-end;align-items:center;margin-top:8px}
 .link{background:none;border:0;color:var(--fg);cursor:pointer;font:inherit;padding:4px;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line)}.link.danger{color:var(--danger)}
-ul.plain{list-style:none;padding:0;margin:8px 0}ul.plain li{padding:8px 0;border-bottom:1px solid var(--line)}
+ul.plain,ol.plain{list-style:none;padding:0;margin:8px 0}ul.plain li,ol.plain li{padding:8px 0;border-bottom:1px solid var(--line)}
 .dup-group{border-top:1px solid var(--line);padding-top:6px;margin-top:8px}
 .chips{display:flex;flex-wrap:wrap;gap:10px}
 .chip{display:flex;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);color:var(--fg);font:inherit;text-align:left;padding:8px 16px 8px 8px;border-radius:999px;cursor:pointer;transition:border-color .15s,transform .15s}
@@ -197,3 +197,45 @@ h1,h2,h3,.t-name,.stat strong{overflow-wrap:anywhere}
 
 /* keep the tab bar above the board so tiles that sit off-screen inside it can never overlap it */
 .view-switch{position:relative;z-index:2}
+
+/* ===== v0.6: confidence, import preview, toast, reminders ===== */
+.conf{display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:99px;vertical-align:middle;white-space:nowrap}
+.conf-High{background:#22c55e;color:#04210f}
+.conf-Medium{background:var(--warn);color:var(--warn-ink)}
+.conf-Low{background:var(--muted);color:var(--muted-ink)}
+.conf-tracked{background:transparent;color:var(--muted);border:1px solid var(--control)}
+
+.modal.wide{max-width:760px}
+.pv-list{margin:10px 0}
+.pv-row{padding:12px 0;border-bottom:1px solid var(--line)}
+.pv-row.is-tracked{opacity:.65}
+.pv-head{display:flex;gap:12px;align-items:center}
+.pv-head input[type=checkbox]{flex:none}
+.pv-title{min-width:0}
+.pv-fields{display:grid;grid-template-columns:2fr 1fr 1.2fr 1.4fr;gap:10px;margin:10px 0 0 0}
+.pv-fields label{display:grid;gap:3px;font-size:.78rem;color:var(--muted);min-width:0}
+.pv-fields input,.pv-fields select{width:100%;min-width:0;color:var(--fg)}
+.pv-actions{position:sticky;bottom:-20px;background:var(--bg);padding:12px 0 4px;margin-top:6px}
+@media (max-width:600px){.pv-fields{grid-template-columns:1fr 1fr}.pv-fields label:first-child{grid-column:1/-1}.pv-actions{bottom:-20px}}
+
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:40;display:flex;gap:12px;align-items:center;max-width:min(560px,calc(100vw - 24px));padding:10px 12px 10px 18px;border-radius:999px;background:var(--card);border:1px solid var(--control);box-shadow:var(--shadow)}
+.toast-text{min-width:0;overflow-wrap:anywhere}
+@media (max-width:600px){.toast{bottom:calc(86px + env(safe-area-inset-bottom));border-radius:22px}}
+
+.bell-menu{position:relative;display:inline-block}
+.bell-menu summary{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 8px;list-style:none;cursor:pointer;color:var(--fg);font-size:.9rem}
+.bell-menu summary::-webkit-details-marker{display:none}
+.bell-label{color:var(--muted);font-size:.8rem}
+.bell-pop{position:absolute;right:0;bottom:calc(100% + 4px);z-index:20;display:grid;min-width:190px;padding:6px;border-radius:16px;background:var(--card);border:1px solid var(--control);box-shadow:var(--shadow)}
+.bell-pop .link{justify-content:flex-start;text-decoration:none;width:100%}
+.modal .bell-pop{bottom:auto;top:calc(100% + 4px);right:auto;left:0}
+.history{margin:8px 0}
+.history ol{margin:6px 0}
+
+fieldset.windows{border:0;padding:0;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px}
+fieldset.windows legend{padding:0;margin-bottom:8px;font-weight:600}
+.check-pill{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid var(--control);border-radius:999px;cursor:pointer}
+.check-pill:has(input:checked){border-color:var(--accent);background:var(--card2)}
+
+/* disclosure headings: the whole 44px target is padded so the text sits in the middle of it */
+summary{padding:10px 0;line-height:1.5}

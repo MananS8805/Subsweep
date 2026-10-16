@@ -1,9 +1,9 @@
 import { db } from './db';
-import type { CancelStatus, Cycle, DismissedDuplicate, Subscription } from './types';
+import { CYCLES, type CancelStatus, type Cycle, type DismissedDuplicate, type Subscription } from './types';
 import { isCurrencyCode } from './currency';
 
 export const BACKUP_APP = 'subsweep';
-export const BACKUP_VERSION = 2; // v2 adds the cancel & verify fields; v1 files still restore
+export const BACKUP_VERSION = 2; // v2 adds the cancel & verify fields; v1 files still restore. Later fields are optional, so the version stays 2.
 export type ImportMode = 'merge' | 'replace';
 
 export interface Backup {
@@ -33,7 +33,6 @@ export const backupFileName = (d = new Date()) => `subsweep-backup-${d.toISOStri
 
 // ---- validation ------------------------------------------------------------
 
-const CYCLES: Cycle[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const STATUSES: CancelStatus[] = ['active', 'cancelling', 'cancelled'];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -99,6 +98,22 @@ function cleanSub(raw: unknown, i: number): Subscription {
   if (raw.lastUsedAt !== undefined) {
     if (!isIsoDay(raw.lastUsedAt)) throw bad('lastUsedAt');
     sub.lastUsedAt = raw.lastUsedAt;
+  }
+  if (raw.confidence !== undefined) {
+    if (!isNum(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) throw bad('confidence');
+    sub.confidence = raw.confidence;
+  }
+  if (raw.importBatchId !== undefined) {
+    if (typeof raw.importBatchId !== 'string') throw bad('importBatchId');
+    sub.importBatchId = raw.importBatchId;
+  }
+  if (raw.muted !== undefined) {
+    if (typeof raw.muted !== 'boolean') throw bad('muted');
+    sub.muted = raw.muted;
+  }
+  if (raw.snoozedUntil !== undefined) {
+    if (!isIsoDay(raw.snoozedUntil)) throw bad('snoozedUntil');
+    sub.snoozedUntil = raw.snoozedUntil;
   }
   if (raw.cancelRef !== undefined) {
     if (typeof raw.cancelRef !== 'string') throw bad('cancelRef');

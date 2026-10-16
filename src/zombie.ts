@@ -4,7 +4,7 @@ import { normalizeName, similarity } from './dedupe';
 
 /** Days after the paid-through date before a charge counts as "still charging" (banks post late). */
 export const GRACE_DAYS = 2;
-const CYCLE_DAYS: Record<Cycle, number> = { weekly: 7, monthly: 31, quarterly: 92, yearly: 366 };
+const CYCLE_DAYS: Record<Cycle, number> = { weekly: 7, biweekly: 15, monthly: 31, quarterly: 92, yearly: 366 };
 const AMOUNT_TOLERANCE = 0.15;
 
 const addDays = (iso: string, n: number) => {

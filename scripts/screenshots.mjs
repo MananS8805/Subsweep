@@ -55,6 +55,14 @@ async function viewportAt(page, file, selector, offset = 12) {
   await tab(page, 'List');
   await between(page, 'desktop-list.png', '.view-switch', 'article.sub:nth-of-type(3)');
 
+  // the reminder bell on a card, opened (the menu floats above the card, so capture the area around it)
+  const spotify = page.locator('article.sub').filter({ has: page.locator('h3', { hasText: /^Spotify/ }) });
+  await spotify.locator('.bell-menu summary').click();
+  const box = await spotify.evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; });
+  await page.screenshot({ path: out('reminder-menu.png'), fullPage: true, clip: { x: Math.max(0, box.x - 8), y: Math.max(0, box.y - 230), width: box.width + 16, height: box.height + 250 } });
+  await page.keyboard.press('Escape');
+  await spotify.locator('.bell-menu summary').click(); // close it again
+
   await page.locator('[aria-label="Insights"]').screenshot({ path: out('desktop-insights.png') });
   await page.locator('[aria-label="Still being charged"]').screenshot({ path: out('still-charging.png') });
 
@@ -65,6 +73,16 @@ async function viewportAt(page, file, selector, offset = 12) {
   await page.keyboard.press('Escape');
   await page.waitForSelector('[role=dialog]', { state: 'detached' });
 
+  // the detail view with its price history
+  await page.locator('article.sub').filter({ has: page.locator('h3', { hasText: /^Netflix/ }) }).getByRole('button', { name: /Cancel/ }).first().click();
+  await page.locator('[role=dialog] details.history summary').click();
+  await page.waitForTimeout(300);
+  await page.locator('[role=dialog]').screenshot({ path: out('price-history.png') });
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[role=dialog]', { state: 'detached' });
+
+  await page.locator('#reminder-settings').scrollIntoViewIfNeeded();
+  await page.locator('#reminder-settings').screenshot({ path: out('desktop-reminders.png') });
   await page.locator('#currency-settings').scrollIntoViewIfNeeded();
   await between(page, 'desktop-settings.png', '#currency-settings', '#app-settings');
 
@@ -90,6 +108,15 @@ async function viewportAt(page, file, selector, offset = 12) {
   await page.locator('input[type=file][accept*=csv]').setInputFiles(new URL('../sample-data/us-credit-card.csv', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
   await page.waitForSelector('[role=dialog]');
   await page.locator('[role=dialog]').screenshot({ path: out('scan-results.png') });
+  await context.close();
+}
+
+// ---------------- the review step: a realistic statement with weekly, biweekly, monthly, quarterly and yearly charges
+{
+  const { page, context } = await open({ width: 1000, height: 1400, sample: false });
+  await page.locator('input[type=file][accept*=csv]').setInputFiles(new URL('../sample-data/mixed-cycles.csv', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  await page.waitForSelector('[role=dialog] .pv-row');
+  await page.locator('[role=dialog]').screenshot({ path: out('import-preview.png') });
   await context.close();
 }
 

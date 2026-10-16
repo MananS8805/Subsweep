@@ -9,7 +9,7 @@ const nextDay = (d: string) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCD
 export function buildIcs(subs: Subscription[]): string {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SubSweep//EN', 'CALSCALE:GREGORIAN'];
   for (const s of subs.filter(isLive)) {
-    const rrule = { weekly: 'FREQ=WEEKLY', monthly: 'FREQ=MONTHLY', quarterly: 'FREQ=MONTHLY;INTERVAL=3', yearly: 'FREQ=YEARLY' } as const;
+    const rrule = { weekly: 'FREQ=WEEKLY', biweekly: 'FREQ=WEEKLY;INTERVAL=2', monthly: 'FREQ=MONTHLY', quarterly: 'FREQ=MONTHLY;INTERVAL=3', yearly: 'FREQ=YEARLY' } as const;
     lines.push(
       'BEGIN:VEVENT',
       `UID:subsweep-${s.id ?? s.name}-${compact(s.nextRenewal)}@subsweep.local`,

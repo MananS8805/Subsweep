@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 - 2026-10-16
+### Added
+- **Smarter detection.** Weekly, every-2-weeks, monthly, quarterly and yearly charges are found from the median gap between charges (7 ±1, 14 ±2, 28-31 ±3, 90 ±6, 365 ±10 days). Every result gets a **confidence** from 0 to 1 and a label: High (0.75 and up), Medium (0.5 to 0.75) or Low. The score weighs how often it repeated, how regular the gaps are, how consistent the amount is and how recent the last charge is. Erratic amounts, a yearly charge seen only twice and two weekly sightings are capped so they cannot look certain. Grocery and fuel style spending is rejected or Low.
+- **Price history.** Each distinct price is recorded with its date, a mid-series price change stays one subscription, and the "price crept up" flag is now derived from that history. The detail view shows the list.
+- **Review before adding.** A scan no longer saves anything: it opens a preview sorted by confidence with a tick box per item (High and Medium ticked, Low not), editable name, amount, cycle and category, and the skipped and already-tracked counts. "Add N selected" is disabled when nothing is ticked, and items you already track are shown unticked and disabled.
+- **Undo.** After an import, an Undo toast (30 seconds) removes exactly the rows that import added; deleting a subscription now shows an Undo toast (10 seconds) instead of a confirm box. Ctrl/Cmd+Z works while a toast is showing, and the toast is the first Tab stop after the skip link.
+- **Reminder settings.** Choose 1, 3 and/or 7 days before a renewal. Each subscription has a bell: mute, or snooze for 1 day, 3 days or a week (snoozes lapse on their own). Muted and snoozed items still count in totals. Free trials ending within 3 days always remind you unless muted or snoozed. Each reminder (subscription, renewal date, window) is shown once, even across reloads, and a blocked-notifications note appears once and can be dismissed. "Renewing soon" now follows your windows and is labelled with the soonest renewal.
+- Sample statement `sample-data/mixed-cycles.csv` and a new end-to-end check, `scripts/verify-features.mjs`.
+
+### Changed
+- Reminders and "today" use your **local** date (they used UTC before, which could be a day off late in the evening).
+- Merging duplicates now keeps every price from every record in the price history, current price last.
+- Database schema v5: adds a table that remembers which reminders were shown, and gives existing subscriptions a one-entry price history from their current price. Nothing else moves. The backup format version is unchanged and the new fields are optional, so older backups still restore.
+- Removing a subscription no longer asks for confirmation; use Undo.
+
+### Notes
+- Verified on the production build: Lighthouse Accessibility, Best Practices and SEO 100, no axe violations on the new screens (preview, toast, bell menu, reminders card) in light and dark at 1280px and 390px, 51 end-to-end feature checks, and everything works offline.
+
 ## 0.5.0 - 2026-10-15
 ### Added
 - **Accessibility.** Skip link, one `h1`, a `main` landmark and a sensible heading order. Tabs are real tabs (arrow keys, Home and End) with a tab panel. Dialogs move focus in, keep Tab inside, close on Escape and give focus back to what opened them; only the top dialog reacts when two are stacked. Scan results, errors, "N rows skipped" and backup messages are announced through always-mounted live regions that never repeat the same message on a re-render. Logos are decorative and tiles are named by their visible text. File pickers are real buttons (they were unreachable by keyboard). Focus rings are visible everywhere (3px, high contrast) and keyboard focus on an Explore tile pans it into view.

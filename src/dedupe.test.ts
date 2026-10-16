@@ -59,7 +59,7 @@ describe('mergeSubscriptions', () => {
     expect(keep.category).toBe('Streaming');
     expect(keep.notes).toBe('family plan');
     expect(removeIds.sort()).toEqual([11, 12]);
-    expect(keep.priceHistory?.map(h => h.amount)).toEqual([15.49, 15.99]);
+    expect(keep.priceHistory?.map(h => h.amount)).toEqual([15.49, 15.99, 17.99]); // every price over time, current last
   });
   it('treats v0.1 rows without createdAt as oldest, ordered by id', () => {
     const a = sub({ id: 1 }), b = sub({ id: 2, createdAt: '2026-05-01T00:00:00.000Z', amount: 17.99 });

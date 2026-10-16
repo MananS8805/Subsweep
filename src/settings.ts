@@ -1,5 +1,6 @@
 import { db } from './db';
 import { DEFAULT_BASE, isCurrencyCode, sanitizeRates, type Rates } from './currency';
+import { DEFAULT_REMINDER_DAYS, normalizeWindows } from './reminders';
 
 export interface AppSettings {
   baseCurrency: string;
@@ -7,9 +8,11 @@ export interface AppSettings {
   ratesNeedReview: boolean;
   dismissedInsights: string[];
   sampleIds: number[]; // rows added by "Load sample data"
+  reminderDays: number[]; // days before a renewal to remind, any of 1, 3, 7
+  reminderBannerDismissed: boolean; // the "notifications are blocked" note was closed
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { baseCurrency: DEFAULT_BASE, rates: {}, ratesNeedReview: false, dismissedInsights: [], sampleIds: [] };
+export const DEFAULT_SETTINGS: AppSettings = { baseCurrency: DEFAULT_BASE, rates: {}, ratesNeedReview: false, dismissedInsights: [], sampleIds: [], reminderDays: [...DEFAULT_REMINDER_DAYS], reminderBannerDismissed: false };
 
 /** Read settings defensively: anything missing or malformed (old data, a hand-edited backup) falls back to defaults. */
 export async function loadSettings(): Promise<AppSettings> {
@@ -22,6 +25,8 @@ export async function loadSettings(): Promise<AppSettings> {
     rates: sanitizeRates(rows.get('rates')),
     ratesNeedReview: rows.get('ratesNeedReview') === true,
     dismissedInsights: Array.isArray(dismissed) ? dismissed.filter((x): x is string => typeof x === 'string') : [],
+    reminderDays: rows.has('reminderDays') ? normalizeWindows(rows.get('reminderDays')) : [...DEFAULT_REMINDER_DAYS],
+    reminderBannerDismissed: rows.get('reminderBannerDismissed') === true,
     sampleIds: Array.isArray(sample) ? sample.filter((x): x is number => Number.isInteger(x) && x > 0) : [],
   };
 }

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { isLive, type Subscription } from './types';
+import { CYCLE_SHORT, isLive, type Subscription } from './types';
 import { categoryYearly, savingsFor, totals, yearlyCost, missingCurrencies, subCurrency } from './savings';
 import { convert, type Rates } from './currency';
 import BrandLogo from './BrandLogo';
@@ -19,7 +19,6 @@ interface Props {
   onOpen: (s: Subscription) => void;
 }
 
-const CYCLE_SHORT = { weekly: 'wk', monthly: 'mo', quarterly: 'qtr', yearly: 'yr' } as const;
 
 /** Yearly cost of everything you pay for, plus a "what would I save" simulator driven by the Cancel? ticks. */
 export default function YearlyView({ subs, base, rates, money, sort, onSort, onToggle, onClear, onUsed, onOpen }: Props) {
