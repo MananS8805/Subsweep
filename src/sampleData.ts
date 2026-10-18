@@ -18,7 +18,7 @@ export function sampleSubscriptions(today: string): Omit<Subscription, 'id'>[] {
   const stamp = (days: number) => `${at(days)}T09:00:00.000Z`;
   const base = { isTrial: false, notes: SAMPLE_NOTE };
   return [
-    { ...base, name: 'Netflix', amount: 649, currency: 'INR', cycle: 'monthly', nextRenewal: at(5), category: 'Streaming', priceCreep: { from: 499, to: 649 }, priceHistory: [{ date: at(-220), amount: 499 }, { date: at(-95), amount: 649 }], createdAt: stamp(-220), lastUsedAt: at(-2) },
+    { ...base, name: 'Netflix', amount: 649, currency: 'INR', cycle: 'monthly', nextRenewal: at(5), category: 'Streaming', priceCreep: { from: 499, to: 649 }, priceHistory: [{ date: at(-220), amount: 499 }, { date: at(-150), amount: 549 }, { date: at(-95), amount: 649 }], createdAt: stamp(-220), lastUsedAt: at(-2) },
     { ...base, name: 'Hotstar', amount: 299, currency: 'INR', cycle: 'monthly', nextRenewal: at(13), category: 'Streaming', createdAt: stamp(-220), lastUsedAt: at(-4) },
     { ...base, name: 'Amazon Prime', amount: 1499, currency: 'INR', cycle: 'yearly', nextRenewal: at(120), category: 'Shopping', createdAt: stamp(-220), lastUsedAt: at(-5) },
     { ...base, name: 'Spotify', amount: 119, currency: 'INR', cycle: 'monthly', nextRenewal: at(2), category: 'Music', createdAt: stamp(-220), lastUsedAt: at(-1) },

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 - 2026-10-19
+### Added
+- **Bulk actions.** A **Select** button on the list turns on select mode: every card gets a checkbox and a sticky action bar offers *Set category*, *Mark used recently*, *Mute reminders*, *Mark Cancel?*, *Delete*, *Select all* and *Clear*. Every action shows an **Undo** toast for 15 seconds. Undo puts back the exact previous values (and removes a flag that did not exist before instead of setting it to false); deleting restores whole rows with their ids. If an item was edited or deleted by something else before you undo, it is skipped and the message says so ("1 item could not be restored"). Deleting more than 3 asks first, in an accessible dialog that starts on Cancel. Selection clears after each action, Escape leaves select mode, a "Jump to actions" link moves keyboard focus to the bar, and on phones the bar is one compact scrolling row so it never covers the cards.
+- **Price-history chart.** A **Price history** button on any subscription with 2 or more prices opens a step chart drawn in plain SVG, with a one-sentence summary ("Rose from ₹499.00 to ₹649.00 (+30%) since Jan 2026"). It is an image to screen readers with that sentence as its label, and a real table of dates, prices and changes sits beside it. The vertical axis always starts at 0 so a small change is not exaggerated, and direction is shown by marker shape (circle, triangle up, triangle down) as well as colour. It fits at 320px and meets contrast in light and dark.
+- **Next 30 days.** A new tab lists every charge due in the next 30 days, grouped by calendar week (Monday to Sunday), with the total, the busiest week and your free trials that end in the window (highlighted and kept out of the total). Weekly and every-2-weeks charges count every time they occur, month-end renewals keep their day, yearly and quarterly charges count only if they fall inside the window, muted and snoozed items are included and marked (they still cost money), and charges in a currency with no exchange rate are listed separately instead of being counted. **Copy summary** puts plain text on the clipboard (or opens it in a text box if the clipboard is blocked) and **Print** gives a clean one-page layout.
+- `scripts/verify-bulk.mjs`: end-to-end checks for all of the above on the production build.
+
+### Changed
+- "All subscriptions" has its own heading row with the Select button; the floating add button hides while selecting.
+- Tab navigation now covers four tabs (Explore, Yearly, Next 30 days, List).
+
+### Notes
+- No database or backup-format changes: v0.6 data and backups load exactly as before.
+- Verified on the production build: no axe violations on the new screens (digest, select mode with the bar, delete confirmation, undo toast, chart dialog) in light and dark at 1280px and 390px; every new feature also works offline.
+
 ## 0.6.0 - 2026-10-16
 ### Added
 - **Smarter detection.** Weekly, every-2-weeks, monthly, quarterly and yearly charges are found from the median gap between charges (7 ±1, 14 ±2, 28-31 ±3, 90 ±6, 365 ±10 days). Every result gets a **confidence** from 0 to 1 and a label: High (0.75 and up), Medium (0.5 to 0.75) or Low. The score weighs how often it repeated, how regular the gaps are, how consistent the amount is and how recent the last charge is. Erratic amounts, a yearly charge seen only twice and two weekly sightings are capped so they cannot look certain. Grocery and fuel style spending is rejected or Low.

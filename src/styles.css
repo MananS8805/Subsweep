@@ -239,3 +239,65 @@ fieldset.windows legend{padding:0;margin-bottom:8px;font-weight:600}
 
 /* disclosure headings: the whole 44px target is padded so the text sits in the middle of it */
 summary{padding:10px 0;line-height:1.5}
+
+/* ===== v0.7: bulk actions, price chart, 30-day digest ===== */
+.danger-btn{color:var(--danger);border-color:var(--danger)}
+.danger-btn:hover{border-color:var(--danger)}
+.danger-btn:disabled{color:var(--muted);border-color:var(--line)}
+.select-pad{padding-bottom:96px}
+.card.sub.selected{border-color:var(--accent);background:var(--card2)}
+input.sel{flex:none;width:26px;height:26px}
+.bulk-bar{position:sticky;bottom:12px;z-index:25;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px;padding:10px 12px;border-radius:22px;background:var(--card);border:1px solid var(--accent);box-shadow:var(--shadow)}
+.bulk-bar:focus{outline:none}
+.bulk-bar:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.bulk-count{min-width:92px}
+.bulk-bar select{max-width:180px}
+.bulk-sep{flex:1}
+.app:has(.bulk-bar) .toast{bottom:calc(96px + env(safe-area-inset-bottom))}
+@media (max-width:600px){
+  /* one compact, side-scrolling row, so the bar never covers the cards you are selecting */
+  .bulk-bar{flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:8px 10px;border-radius:18px;scrollbar-width:thin}
+  .bulk-bar > *{flex:none}
+  .bulk-count{min-width:0;white-space:nowrap;padding:0 4px}
+  .bulk-bar .btn,.bulk-bar select{white-space:nowrap}
+  .bulk-sep{display:none}
+  .app:has(.bulk-bar) .toast{bottom:calc(92px + env(safe-area-inset-bottom))}
+}
+
+.pc-fig{margin:6px 0 0}
+.pc-summary{margin:0 0 6px}
+.pc{display:block;width:100%;max-width:520px;height:auto;margin:0 auto}
+.pc-grid{stroke:var(--line);stroke-width:1}
+.pc-axis{stroke:var(--control);stroke-width:1.5}
+.pc-line{stroke:var(--fg);stroke-width:2;stroke-linejoin:round}
+.pc-text{font-size:11px;fill:var(--muted)}
+.pc-mark{stroke:var(--bg);stroke-width:1.5}
+.pc-start{fill:var(--fg)}
+.pc-up{fill:var(--warn)}
+.pc-down{fill:var(--ok)}
+.pc-legend{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0;margin:8px 0 0;font-size:.85rem;color:var(--muted)}
+.pc-key{font-weight:700}
+.pc-key-start{color:var(--fg)}.pc-key-up{color:var(--warn)}.pc-key-down{color:var(--ok)}
+.pc-note{font-size:.85rem;margin:6px 0 0}
+
+.digest .summary{margin:8px 0}
+.card.week.busiest{border-color:var(--warn)}
+.pill.busy{background:var(--warn);color:var(--warn-ink);margin-left:6px}
+.digest-row{display:grid;grid-template-columns:7.5em 1fr auto;gap:10px;align-items:center}
+.digest-date{color:var(--muted);font-size:.9rem}
+.digest-amt{white-space:nowrap}
+.trial-card{border-color:var(--accent)}
+@media (max-width:600px){.digest-row{grid-template-columns:1fr auto}.digest-date{grid-column:1/-1}}
+
+@media print{
+  .skip,header.top,.view-switch,.fab,footer,.banner,.toast,.btn,.link.name,.no-print-row .actions,.sr-only{display:none!important}
+  main > :not(#view-panel){display:none!important}
+  body,.app{background:#fff!important;color:#000!important}
+  .app{max-width:none;padding:0}
+  .card,.stat{border:1px solid #888!important;background:#fff!important;box-shadow:none!important;break-inside:avoid}
+  .muted,.digest-date{color:#333!important}
+  .logo{display:none}
+  a{color:#000}
+}
+
+.row-actions.start{justify-content:flex-start}

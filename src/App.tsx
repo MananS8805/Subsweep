@@ -23,6 +23,13 @@ import Toast from './Toast';
 import ImportReview from './ImportReview';
 import ReminderMenu, { reminderStatus } from './ReminderMenu';
 import ReminderSettings from './ReminderSettings';
+import BulkBar from './BulkBar';
+import ConfirmDialog from './ConfirmDialog';
+import DigestView from './DigestView';
+import PriceChart from './PriceChart';
+import { canApply, doneMessage, needsDeleteConfirm, undoMessage, type BulkAction } from './bulk';
+import { runBulk, runUndo } from './bulkDb';
+import { digestText, getDigest } from './digest';
 import { addedMessage, buildPreview, idsInBatch, newBatchId, selectedItems, toSubscriptions, type PreviewItem } from './importPreview';
 import { freshReminders, getDueReminders, notificationText, soonestLabel, staleKeys, whenText } from './reminders';
 import { dayDiff, localDate } from './dates';
@@ -50,7 +57,7 @@ function guessCategory(name: string): string {
   return map.find(([re]) => re.test(n))?.[1] ?? 'Other';
 }
 
-const VIEWS = [['board', 'Explore'], ['yearly', 'Yearly'], ['list', 'List']] as const;
+const VIEWS = [['board', 'Explore'], ['yearly', 'Yearly'], ['digest', 'Next 30 days'], ['list', 'List']] as const;
 
 export default function App() {
   const [subs, setSubs] = useState<Subscription[]>([]);
@@ -59,8 +66,12 @@ export default function App() {
   const [toast, setToast] = useState<{ id: number; message: string; actionLabel: string; durationMs: number; onAction: () => void } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [view, setView] = useState<'board' | 'list' | 'yearly'>(() => (typeof window !== 'undefined' && window.innerWidth < 720 ? 'list' : 'board'));
+  const [view, setView] = useState<'board' | 'list' | 'yearly' | 'digest'>(() => (typeof window !== 'undefined' && window.innerWidth < 720 ? 'list' : 'board'));
   const [detail, setDetail] = useState<Subscription | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<number[] | null>(null);
+  const [chartFor, setChartFor] = useState<Subscription | null>(null);
   const [cancelFor, setCancelFor] = useState<Subscription | null>(null);
   const [textModal, setTextModal] = useState<{ title: string; text: string } | null>(null);
   const [scanInfo, setScanInfo] = useState({ skipped: 0, tracked: 0 });
@@ -131,6 +142,8 @@ export default function App() {
     () => visibleInsights(getInsights(subs, today(), { base, rates }), settings.dismissedInsights),
     [subs, base, rates, settings.dismissedInsights]);
   const duplicateGroups = useMemo(() => findDuplicates(subs, dismissed), [subs, dismissed]);
+  const visibleSubs = subs; // "Select all" only ever covers what the list is showing
+  const digest = useMemo(() => getDigest(subs, settings, today()), [subs, settings.baseCurrency, settings.rates]);
   const dueList = useMemo(() => getDueReminders(subs, settings, today()), [subs, settings.reminderDays]);
 
   async function onFile(f: File | undefined) {
@@ -191,6 +204,54 @@ export default function App() {
     row.id ? await db.subs.put(row) : await db.subs.add({ ...row, createdAt: new Date().toISOString() });
     setEditing(null); load();
   }
+  // forget selected ids that no longer exist (deleted elsewhere, or by undo bookkeeping)
+  useEffect(() => {
+    setSelected(prev => {
+      const live = new Set(subs.map(x => x.id));
+      const next = new Set([...prev].filter(id => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [subs]);
+  useEffect(() => {
+    if (!selectMode) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && modalDepth() === 0) exitSelectMode(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectMode]);
+
+  function enterSelectMode() { setSelectMode(true); setSelected(new Set()); setNotice('Select mode on. Tick subscriptions, then use the actions bar.'); }
+  function exitSelectMode() {
+    setSelectMode(false); setSelected(new Set());
+    document.getElementById('select-toggle')?.focus();
+  }
+  const toggleOne = (id: number) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  /** Run a bulk action, then offer Undo for 15 seconds. Selection is cleared afterwards. */
+  async function doBulk(action: BulkAction) {
+    const ids = [...selected];
+    if (!canApply(ids)) return;
+    const plan = await runBulk(subs, ids, action);
+    setSelected(new Set());
+    await load();
+    if (!plan.changed) { setNotice('Nothing to change: they were already set that way.'); return; }
+    showToast(doneMessage(action, plan.changed), 'Undo', 15000, async () => {
+      const r = await runUndo(plan.undo);
+      setToast(null); setNotice(undoMessage(r.restored, r.skipped));
+      await load();
+    });
+  }
+  function askBulkDelete() {
+    const ids = [...selected];
+    if (!canApply(ids)) return;
+    if (needsDeleteConfirm(ids.length)) setPendingDelete(ids); else doBulk({ type: 'delete' });
+  }
+
+  async function copyDigest() {
+    const text = digestText(digest, id => subs.find(x => x.id === id)?.name ?? 'Subscription', n => money(n));
+    try { await navigator.clipboard.writeText(text); setNotice('Copied the 30-day summary.'); }
+    catch { setTextModal({ title: 'Next 30 days summary', text }); }   // clipboard unavailable: show it selected so it can be copied by hand
+  }
+
   async function remove(id: number) {
     const row = subs.find(x => x.id === id);
     if (!row) return;
@@ -397,9 +458,13 @@ export default function App() {
         <YearlyView subs={subs} base={base} rates={rates} money={money} sort={yearlySort} onSort={setYearlySort}
           onToggle={toggleSelect} onClear={clearSelection} onUsed={s => markUsed(s.id!)} onOpen={setDetail} />
       )}
+
+      {view === 'digest' && (
+        <DigestView digest={digest} subs={subs} money={money} onOpen={setDetail} onCopy={copyDigest} onPrint={() => window.print()} onSetRates={goToRates} />
+      )}
       </div>
 
-      {needRates.length > 0 && view !== 'yearly' && (
+      {needRates.length > 0 && (view === 'board' || view === 'list') && (
         <section className="card warn" aria-label="Exchange rate needed">
           <h2>Exchange rate needed</h2>
           <p className="muted">{tot.missing.length} subscription{tot.missing.length === 1 ? ' is' : 's are'} left out of your totals because there is no rate for {needRates.join(', ')}.</p>
@@ -443,7 +508,7 @@ export default function App() {
         </section>
       )}
 
-      {view !== 'yearly' && dueList.length > 0 && (
+      {(view === 'board' || view === 'list') && dueList.length > 0 && (
         <section aria-labelledby="renewing-soon-title">
           <h2 id="renewing-soon-title">{soonestLabel(dueList)}</h2>
           <div className="chips">
@@ -457,7 +522,7 @@ export default function App() {
         </section>
       )}
 
-      {view !== 'yearly' && byCat.length > 0 && (
+      {(view === 'board' || view === 'list') && byCat.length > 0 && (
         <section className="card">
           <h2>By category · monthly</h2>
           {byCat.map(([c, v]) => (
@@ -470,13 +535,22 @@ export default function App() {
         </section>
       )}
 
-      {view !== 'yearly' && <section aria-label="All subscriptions">
-        <h2>All subscriptions</h2>
+      {(view === 'board' || view === 'list') && <section aria-labelledby="all-subs-title" className={selectMode ? 'select-pad' : undefined}>
+        <div className="row sort-row">
+          <h2 id="all-subs-title">All subscriptions</h2>
+          {subs.length > 0 && (
+            <div className="actions">
+              {selectMode && <a className="btn" href="#bulk-bar" onClick={e => { e.preventDefault(); document.getElementById('bulk-bar')?.focus(); }}>Jump to actions</a>}
+              <button id="select-toggle" className="btn" aria-pressed={selectMode} onClick={() => (selectMode ? exitSelectMode() : enterSelectMode())}>{selectMode ? 'Done selecting' : 'Select'}</button>
+            </div>
+          )}
+        </div>
         {subs.length === 0 && <p className="empty">Nothing yet. Upload a statement CSV from your bank, or add a subscription by hand.</p>}
-        {subs.map(s => (
-          <article className="card sub" key={s.id}>
+        {visibleSubs.map(s => (
+          <article className={`card sub${selectMode && selected.has(s.id!) ? ' selected' : ''}`} key={s.id}>
             <div className="row">
               <div className="with-logo">
+                {selectMode && <input type="checkbox" className="sel" aria-label={`Select ${s.name}`} checked={selected.has(s.id!)} onChange={() => toggleOne(s.id!)} />}
                 <BrandLogo name={s.name} size={48} />
                 <div>
                   <h3>{s.name} {s.isTrial && <span className="pill trial">trial</span>}{stateOf(s) !== 'active' && <span className={`pill st-${stateOf(s)}`}>{STATE_LABEL[stateOf(s)]}</span>}</h3>
@@ -491,6 +565,7 @@ export default function App() {
             </div>
             {isLive(s) && <details><summary>How to cancel</summary><p className="muted">{cancelKit(s.name).steps}</p></details>}
             <div className="row-actions">
+              {(s.priceHistory?.length ?? 0) >= 2 && <button className="link" onClick={() => setChartFor(s)}>Price history</button>}
               {isLive(s) && <ReminderMenu sub={s} now={today()} onChange={patch => patchSub(s.id!, patch)} />}
               <button className="link" onClick={() => setDetail(s)}>{isLive(s) ? 'Cancel…' : 'Status'}</button>
               <button className="link" onClick={() => setEditing(s)}>Edit</button>
@@ -498,6 +573,18 @@ export default function App() {
             </div>
           </article>
         ))}
+        {selectMode && (
+          <BulkBar
+            count={selected.size} visible={visibleSubs.length}
+            onCategory={category => doBulk({ type: 'category', category })}
+            onUsed={() => doBulk({ type: 'used', date: today() })}
+            onMute={() => doBulk({ type: 'mute' })}
+            onCancel={() => doBulk({ type: 'cancel' })}
+            onDelete={askBulkDelete}
+            onSelectAll={() => setSelected(new Set(visibleSubs.map(x => x.id!)))}
+            onClear={() => setSelected(new Set())}
+          />
+        )}
       </section>}
 
       {preview && (
@@ -521,12 +608,15 @@ export default function App() {
               : <p className="muted">That's about {money(m)} a month, {money(m * 12)} a year{detail.isTrial ? ' once the trial converts' : ''}.</p>; })()}
           {detail.lastUsedAt && <p className="muted">You last marked this used on {detail.lastUsedAt}.</p>}
           {(detail.priceHistory?.length ?? 0) > 1 && (
+            <>
+            <div className="row-actions start"><button className="btn" onClick={() => setChartFor(detail)}>Show price chart</button></div>
             <details className="history">
               <summary>Price history ({detail.priceHistory!.length} prices)</summary>
               <ol className="plain">{detail.priceHistory!.map(h => <li key={h.date + h.amount}><span className="muted">{h.date || 'earlier'}</span> · <b>{money(h.amount, detail.currency)}</b></li>)}</ol>
             </details>
+            </>
           )}
-          {isLive(detail) && <div className="row-actions" style={{ justifyContent: 'flex-start' }}><ReminderMenu sub={detail} now={today()} onChange={async patch => { await patchSub(detail.id!, patch); setDetail({ ...detail, ...patch }); }} /></div>}
+          {isLive(detail) && <div className="row-actions start"><ReminderMenu sub={detail} now={today()} onChange={async patch => { await patchSub(detail.id!, patch); setDetail({ ...detail, ...patch }); }} /></div>}
           {detail.priceCreep && <p className="creep">Price crept up: {money(detail.priceCreep.from, detail.currency)} → {money(detail.priceCreep.to, detail.currency)}</p>}
           <DetailStatus s={detail} state={stateOf(detail)} money={n => money(n, detail.currency)} />
           {isLive(detail) && (() => { const k = cancelKit(detail.name); return (
@@ -577,11 +667,25 @@ export default function App() {
         </Modal>
       )}
 
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Delete ${pendingDelete.length} subscriptions?`}
+          message={`This removes ${pendingDelete.length} subscriptions from SubSweep. You can undo it for a few seconds afterwards.`}
+          confirmLabel={`Delete ${pendingDelete.length}`}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => { setPendingDelete(null); doBulk({ type: 'delete' }); }}
+        />
+      )}
+      {chartFor && (
+        <Modal title={`${chartFor.name}: price history`} onClose={() => setChartFor(null)}>
+          <PriceChart history={chartFor.priceHistory} currency={chartFor.currency ?? base} name={chartFor.name} now={today()} />
+        </Modal>
+      )}
       {cancelFor && <CancelFlow sub={cancelFor} onSave={f => startCancel(cancelFor, f)} onClose={() => setCancelFor(null)} onText={(title, text) => setTextModal({ title, text })} />}
       {textModal && <TextModal title={textModal.title} text={textModal.text} onClose={() => setTextModal(null)} />}
       {editing && <EditForm sub={editing} base={base} onSave={save} onCancel={() => setEditing(null)} />}
       </main>
-      <button className="fab" onClick={() => setEditing(blank(base))}>+ Add subscription</button>
+      {!selectMode && <button className="fab" onClick={() => setEditing(blank(base))}>+ Add subscription</button>}
       <footer>Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
     </div>
   );
@@ -612,7 +716,7 @@ function CancelFlow({ sub, onSave, onClose, onText }: { sub: Subscription; onSav
       <p className="muted"><span className={`pill diff-${kit.difficulty}`}>{DIFFICULTY_LABEL[kit.difficulty]}</span> {kit.steps}</p>
       {kit.note && <p className="muted">{kit.note}</p>}
       {kit.link && <p><a className="btn" href={kit.link} target="_blank" rel="noopener noreferrer">Open {sub.name} account page ↗</a></p>}
-      <div className="row-actions" style={{ justifyContent: 'flex-start' }}>
+      <div className="row-actions start">
         <button type="button" className="btn" onClick={() => onText('Cancellation email', cancelEmail(ctx))}>Email template</button>
         <button type="button" className="btn" onClick={() => onText('Chat script', chatScript(ctx))}>Chat script</button>
       </div>

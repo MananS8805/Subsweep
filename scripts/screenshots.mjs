@@ -55,6 +55,26 @@ async function viewportAt(page, file, selector, offset = 12) {
   await tab(page, 'List');
   await between(page, 'desktop-list.png', '.view-switch', 'article.sub:nth-of-type(3)');
 
+  // select mode: the first cards with the sticky action bar underneath
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  for (const n of ['Netflix', 'Hotstar', 'Spotify']) await page.getByLabel(`Select ${n}`).click();
+  await page.evaluate(() => document.getElementById('all-subs-title').scrollIntoView());
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: out('bulk-select.png') });
+  await page.keyboard.press('Escape');
+
+  // the price chart for Netflix (two price rises)
+  await page.locator('article.sub').filter({ has: page.locator('h3', { hasText: /^Netflix/ }) }).getByRole('button', { name: 'Price history' }).click();
+  await page.waitForSelector('[role=dialog] svg.pc');
+  await page.locator('[role=dialog]').screenshot({ path: out('price-chart.png') });
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[role=dialog]', { state: 'detached' });
+
+  // what is about to be charged in the next 30 days
+  await tab(page, 'Next 30 days');
+  await page.locator('#view-panel').screenshot({ path: out('digest.png') });
+  await tab(page, 'List');
+
   // the reminder bell on a card, opened (the menu floats above the card, so capture the area around it)
   const spotify = page.locator('article.sub').filter({ has: page.locator('h3', { hasText: /^Spotify/ }) });
   await spotify.locator('.bell-menu summary').click();
@@ -138,6 +158,8 @@ async function viewportAt(page, file, selector, offset = 12) {
   await tab(page, 'Yearly');
   await tick(page, 'Peloton');
   await viewportAt(page, 'mobile-yearly.png', '.view-switch');
+  await tab(page, 'Next 30 days');
+  await viewportAt(page, 'mobile-digest.png', '.view-switch');
   await viewportAt(page, 'mobile-settings.png', '#currency-settings');
   await context.close();
 }

@@ -16,6 +16,9 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 - Possible-duplicates banner: similar subscriptions can be merged (only when you click) or dismissed
 - Multi-currency totals with manual exchange rates, a yearly cost view, a "what you'd save" simulator, and overlap / unused insights
 - Cancel & verify: a cancellation kit per service, tracking of what you cancelled, a check that charges really stopped and a dispute message if they did not
+- Bulk actions: select several subscriptions to set a category, mark used, mute, mark Cancel? or delete, each with Undo
+- A price-history chart for any subscription whose price has changed, with a text alternative for screen readers
+- A "Next 30 days" view of everything about to be charged, by week, with a copyable summary and a print layout
 - JSON backup and restore (Merge or Replace)
 - Reminders: choose 1, 3 or 7 days before a renewal, mute or snooze any subscription, plus an `.ics` calendar export with 1-day-before alarms
 - Installable PWA that works offline, with a safe in-app update prompt
@@ -35,6 +38,10 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 | ![Import preview with confidence chips](docs/screenshots/import-preview.png) | ![Reminder settings](docs/screenshots/desktop-reminders.png) |
 | **Price history** for each subscription, built from your statements. | **The bell.** Mute, or snooze for a day, three days or a week. |
 | ![Price history](docs/screenshots/price-history.png) | ![Reminder bell menu](docs/screenshots/reminder-menu.png) |
+| **Bulk actions.** Select mode with a sticky action bar; every action can be undone. | **Price chart.** Steps, shapes for up and down, and a text alternative. |
+| ![Select mode with the bulk action bar](docs/screenshots/bulk-select.png) | ![Price history chart](docs/screenshots/price-chart.png) |
+| **Next 30 days.** What is about to be charged, by week, with trials called out. | **On a phone.** The digest in a single column. |
+| ![30-day digest](docs/screenshots/digest.png) | <img src="docs/screenshots/mobile-digest.png" alt="Phone: the 30-day digest" width="260"> |
 | **Settings.** Base currency, manual rates, install, sample data. | **Light theme.** Follows your system setting. |
 | ![Settings](docs/screenshots/desktop-settings.png) | ![Light theme](docs/screenshots/light-theme.png) |
 
@@ -77,6 +84,7 @@ npm run build && npm run preview:prod         # terminal 1
 node scripts/verify-prod.mjs                  # terminal 2: headers/CSP, keyboard, dialogs, no overflow at 320-1280px, offline cold start
 node scripts/verify-update.mjs                # service worker update flow (banner, no auto-reload, data untouched)
 node scripts/verify-features.mjs              # import preview and undo, reminders (windows, mute, snooze, no duplicates), upgrade, backup, offline
+node scripts/verify-bulk.mjs                  # bulk actions and undo, price chart, 30-day digest (checked against hand-computed totals), offline
 npm run screenshots                           # regenerate docs/screenshots
 npm run icons                                 # re-render the PNG icons from public/icon.svg
 npm run contrast                              # print the contrast ratios for the colour tokens
@@ -117,6 +125,15 @@ In the **Reminders** card choose any of 1, 3 and 7 days before a renewal (defaul
 
 The "Renewing soon" list follows your windows and says how soon the next one is. Browser notifications fire when you open SubSweep; each reminder (subscription, renewal date and window) is shown once, even after reloads, and a tighter window later is a new reminder. If notifications are blocked, SubSweep says so once (you can dismiss it) and the in-app list still works.
 
+## Bulk actions
+Press **Select** above the list. Tick the subscriptions you want (or **Select all**), then use the bar: set a category, mark them used recently, mute their reminders, tick **Cancel?** for the savings simulator, or delete them. Every action shows an **Undo** toast for 15 seconds (or press Ctrl/Cmd+Z). Undo restores the exact previous values, including removing a flag that was not there before, and brings deleted subscriptions back whole. If something was changed or deleted elsewhere in the meantime it is skipped and you are told how many items could not be restored. Deleting more than 3 at once asks for confirmation first. The selection clears after each action, **Done selecting** or Escape leaves select mode, and **Jump to actions** moves keyboard focus to the bar.
+
+## Price-history chart
+Subscriptions whose price has changed get a **Price history** button. It opens a step chart with a one-line summary such as "Rose from ₹499.00 to ₹649.00 (+30%) since Jan 2026". The vertical axis always starts at 0, so a small change is drawn small, and rises and falls use different marker shapes (triangle up, triangle down) so the meaning never depends on colour alone. Screen readers get the summary as the chart's label plus a table of every price. A subscription with a single price just says "No price changes recorded".
+
+## Next 30 days
+The **Next 30 days** tab adds up everything due from today for 30 days, grouped by calendar week (Monday to Sunday), with the total, the busiest week and the free trials that end in the window. Weekly and every-2-weeks charges count each time they happen, month-end renewals keep their day (the 31st stays the 31st where the month has one), and yearly or quarterly charges count only when they fall inside the window. Muted and snoozed subscriptions are included and marked, because they still cost money. A charge in a currency with no exchange rate is listed separately and left out of the total, never guessed. **Copy summary** copies plain text, and **Print** gives a clean page without the app chrome. Free trials are shown but not added to the total, since they cost nothing until they end.
+
 ## Supported CSV formats
 - **Columns** (case-insensitive): date = Date / Transaction Date / Posting Date / Value Date; description = Description / Narration / Details / Merchant / Payee / Particulars; amount = a single signed Amount, separate Debit + Credit (or Withdrawal + Deposit) columns, or Amount + a Dr/Cr column; an optional Currency column.
 - **Dates**: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, DD MMM YYYY. If every date is ambiguous (both parts 12 or less) SubSweep reads them day-first; any date with a part above 12 settles day-first or month-first for the whole file.
@@ -148,7 +165,8 @@ Use **Download backup** to save `subsweep-backup-YYYY-MM-DD.json` (subscriptions
 - Data lives in one browser on one device. Use backups to move or protect it, and note that clearing site data deletes it.
 - Exchange rates are manual and not updated for you.
 - Detection works from statement patterns, so a charge needs to repeat (two or more times) to be recognised, and merchant names are shortened to their first meaningful word. A confidence score is a guide, not a guarantee, which is why you review before adding.
-- Undo covers only the most recent import or delete and does not survive closing the tab.
+- Undo covers only the most recent import, delete or bulk action and does not survive closing the tab.
+- The 30-day digest takes dates from each subscription's next renewal and cycle; it does not know about one-off changes to your plan you have not entered.
 - Direct cancellation links and steps are best-effort and can go stale.
 - Brand logos are bundled for around 50 services; others get a coloured monogram. Trademarks belong to their owners.
 

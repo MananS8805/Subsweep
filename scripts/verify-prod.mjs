@@ -75,7 +75,7 @@ check('Escape closes the dialog and focus returns to the trigger', await page.ev
 // ---- no horizontal overflow, every view, phone to desktop
 for (const [w, hgt] of [[320, 640], [390, 844], [768, 900], [1280, 900]]) {
   await page.setViewportSize({ width: w, height: hgt });
-  for (const tab of ['Explore', 'Yearly', 'List']) {
+  for (const tab of ['Explore', 'Yearly', 'Next 30 days', 'List']) {
     await page.getByRole('tab', { name: tab }).click();
     await page.waitForTimeout(250);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
