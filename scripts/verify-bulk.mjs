@@ -55,7 +55,7 @@ const subs = (page) => page.evaluate(() => new Promise(res => { const r = indexe
 const restore = async (page) => {
   await page.locator('input[type=file][accept*=json]').setInputFiles(file);
   await page.waitForSelector('[role=dialog]');
-  await page.getByRole('button', { name: 'Merge' }).click();
+  await page.getByRole('button', { name: 'Merge into my data' }).click();
   await page.waitForSelector('[role=dialog]', { state: 'detached' });
   await page.waitForTimeout(500);
 };

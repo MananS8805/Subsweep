@@ -8,10 +8,12 @@ interface Props {
   onInstall: () => void;
   onLoadSample: () => void;
   onRemoveSample: () => void;
+  onShortcuts: () => void;
+  onReview: () => void;
 }
 
 /** App-level settings: install, offline status, version and the demo data. */
-export default function AppSettingsCard({ pwa, version, hasSubscriptions, sampleLoaded, onInstall, onLoadSample, onRemoveSample }: Props) {
+export default function AppSettingsCard({ pwa, version, hasSubscriptions, sampleLoaded, onInstall, onLoadSample, onRemoveSample, onShortcuts, onReview }: Props) {
   return (
     <section className="card" id="app-settings" aria-labelledby="app-settings-title">
       <h2 id="app-settings-title">App</h2>
@@ -29,6 +31,12 @@ export default function AppSettingsCard({ pwa, version, hasSubscriptions, sample
       ) : (
         <p className="muted">If your browser supports installing web apps, look for an install option in its menu or address bar.</p>
       )}
+
+      <h3 className="sub-h">Keyboard and review</h3>
+      <div className="actions">
+        <button className="btn" onClick={onShortcuts}>Keyboard shortcuts</button>
+        <button className="btn" onClick={onReview}>Start monthly review</button>
+      </div>
 
       <h3 className="sub-h">Sample data</h3>
       {sampleLoaded ? (

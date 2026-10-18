@@ -129,7 +129,7 @@ describe('loadSettings', () => {
   it('falls back to defaults for missing or malformed values', async () => {
     const { db } = await import('./db');
     await db.settings.clear();
-    expect(await loadSettings()).toEqual({ baseCurrency: 'INR', rates: {}, ratesNeedReview: false, dismissedInsights: [], sampleIds: [], reminderDays: [7], reminderBannerDismissed: false });
+    expect(await loadSettings()).toEqual({ baseCurrency: 'INR', rates: {}, ratesNeedReview: false, dismissedInsights: [], sampleIds: [], reminderDays: [7], reminderBannerDismissed: false, reviewPromptDismissedUntil: '' });
     await db.settings.bulkPut([{ key: 'baseCurrency', value: 'nope' }, { key: 'rates', value: { USD: 83, EUR: 'x' } }, { key: 'dismissedInsights', value: ['a', 3, 'b'] }]);
     expect(await loadSettings()).toMatchObject({ baseCurrency: 'INR', rates: { USD: 83 }, dismissedInsights: ['a', 'b'] });
     await db.settings.clear();

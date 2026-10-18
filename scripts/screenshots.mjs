@@ -3,7 +3,8 @@
 // so the images show exactly what a visitor gets. Needs a Chrome/Edge install (scripts/browser.mjs).
 //   npm run build && npm run preview:prod     (one terminal)
 //   npm run screenshots [url]                 (another)
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launch } from './browser.mjs';
 
@@ -147,6 +148,41 @@ async function viewportAt(page, file, selector, offset = 12) {
   for (const name of ['Peloton', 'Dropbox', 'Duolingo']) await tick(page, name);
   await page.waitForTimeout(500);
   await between(page, 'light-theme.png', '.view-switch', '[aria-label="Yearly cost"] article:nth-of-type(4)');
+  await context.close();
+}
+
+// ---------------- v0.8: restore preview, shortcuts, monthly review
+{
+  const { page, context } = await open();
+  await tab(page, 'List');
+  const dlg = page.getByRole('dialog');
+  // a small backup with different settings, so the preview has something to compare
+  const tmp = mkdtempSync(join(tmpdir(), 'subsweep-shots-'));
+  const day = (n) => { const d = new Date(Date.now() + n * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const f = join(tmp, 'backup.json');
+  writeFileSync(f, JSON.stringify({ app: 'subsweep', version: 2, exportedAt: new Date().toISOString(), dismissedDuplicates: [],
+    settings: { baseCurrency: 'USD', reminderDays: [1, 7], rates: { INR: 0.012, EUR: 1.08 } },
+    subscriptions: [{ id: 901, name: 'Notion', amount: 10, currency: 'USD', cycle: 'monthly', nextRenewal: day(12), category: 'Software', isTrial: false, notes: 'team plan' },
+                    { id: 902, name: 'Strava', amount: 8, currency: 'USD', cycle: 'monthly', nextRenewal: day(5), category: 'Fitness & Health', isTrial: false }] }));
+  await page.locator('input[type=file][accept*=json]').setInputFiles(f);
+  await dlg.waitFor();
+  await page.waitForTimeout(500);
+  await dlg.screenshot({ path: out('restore-preview.png') });
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[role=dialog]', { state: 'detached' });
+
+  await page.keyboard.press('?');
+  await dlg.waitFor();
+  await dlg.screenshot({ path: out('shortcuts.png') });
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[role=dialog]', { state: 'detached' });
+
+  await page.locator('.review-card').scrollIntoViewIfNeeded();
+  await page.locator('.review-card').getByRole('button', { name: 'Start review' }).click();
+  await dlg.waitFor();
+  await dlg.getByRole('button', { name: 'Keep' }).click();
+  await page.waitForTimeout(400);
+  await dlg.screenshot({ path: out('review.png') });
   await context.close();
 }
 

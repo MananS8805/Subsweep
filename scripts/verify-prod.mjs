@@ -106,7 +106,7 @@ check('offline chip is shown', await page.locator('.status-chip').isVisible());
 await page.locator('button.add-top').click();
 await page.getByLabel('Name').fill('Offline Test Sub');
 await page.getByLabel('Amount').fill('123');
-await page.getByRole('button', { name: 'Save' }).click();
+await page.getByRole('button', { name: 'Add', exact: true }).click();
 await page.waitForSelector('[role=dialog]', { state: 'detached' });
 await page.reload({ waitUntil: 'domcontentloaded' });
 await page.getByRole('tab', { name: 'List' }).click();

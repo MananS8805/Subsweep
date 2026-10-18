@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from './db';
-import { loadSampleData, removeSampleData, sampleSubscriptions, SAMPLE_NOTE } from './sampleData';
+import { loadSampleData, removeSampleData, sampleSubscriptions, SAMPLE_BATCH } from './sampleData';
 import { parseBackup } from './backup';
 import { getInsights } from './insights';
 import { loadSettings } from './settings';
@@ -18,7 +18,8 @@ describe('sampleSubscriptions', () => {
   it('is valid backup data (so it round-trips) and every row is labelled as fake', () => {
     const text = JSON.stringify({ app: 'subsweep', version: 2, subscriptions: rows.map((r, i) => ({ ...r, id: i + 1 })) });
     expect(parseBackup(text).subscriptions).toHaveLength(rows.length);
-    expect(rows.every(r => r.notes === SAMPLE_NOTE)).toBe(true);
+    expect(rows.every(r => r.importBatchId === SAMPLE_BATCH)).toBe(true);
+    expect(rows.every(r => r.notes === undefined)).toBe(true); // notes belong to the user
   });
   it('uses relative dates, so loading it later gives the same picture', () => {
     const later = sampleSubscriptions('2027-03-01');

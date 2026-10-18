@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.0 - 2026-10-19
+### Added
+- **Settings travel with your backup.** Base currency, exchange rates, reminder days, dismissed insights and the monthly-review snooze are saved in the backup file, so restoring after clearing site data brings your whole setup back. Settings are validated like everything else: a bad rate or an unknown currency code is shown as a warning and never applied, unknown keys are ignored, and a backup from an older version with no settings leaves yours exactly as they are.
+- **Restore preview.** Choosing a backup now opens a preview that changes nothing until you confirm: how many subscriptions will be added or skipped (Merge) or deleted and loaded (Replace), and a table of every setting that differs, marked "Will change" or "Kept as it is". Merge keeps your existing settings unless you tick *Also overwrite my settings*; settings you have not set yet are still filled in. Replace restores the file's settings unless you untick the box, and never clears settings the file does not mention. Replace needs an explicit confirmation tick.
+- **Keyboard shortcuts.** `N` quick-add, `/` filter by name, `?` cheat sheet, `R` monthly review, and `G` then `E`/`Y`/`D`/`L` to switch view. Shortcuts never fire while you type in a field, with Ctrl/Cmd/Alt held, or while a dialog is open, and the `G` sequence expires after one second. Everything also has a button (cheat sheet from Settings and the footer).
+- **Quick add.** A small dialog with name, amount, cycle and next renewal. It uses the same validation as the full form, warns before adding something that looks like a subscription you already track, and has a "More details…" link to the full form.
+- **Filter by name** above the list (Escape clears it; "Select all" only covers what is shown).
+- **Notes** on every subscription (plain text, up to 500 characters, with a counter). Notes show on the card and in the detail view and are included in backups.
+- **Monthly review.** A card offers a quick pass over subscriptions you have not reviewed in 30 days, most expensive first: *Keep*, *Cancel?* (ticks it for the savings simulator) or *Skip*. Each choice is saved immediately, an Undo toast puts everything back, and "Not now" hides the card for 7 days. A **Mark reviewed** link on each card does it one at a time, also with Undo.
+- `scripts/verify-workflow.mjs`: end-to-end checks for all of the above on the production build.
+
+### Changed
+- The sample-data marker moved from the `notes` field to a batch id, so notes are always the user's own. Existing sample rows keep working through the saved list of ids.
+- The restore dialog no longer uses a browser confirm; Replace is confirmed inside the preview.
+- Backups only export settings SubSweep knows about.
+- Saving a subscription from the full form now shows validation messages instead of silently doing nothing.
+
+### Notes
+- The backup format is still version 2 and every new field is optional, so v0.1 to v0.7 backups import exactly as before. No database changes.
+- Verified on the production build: no axe violations on the new screens (restore preview in every state, quick add with its error and warning, cheat sheet, review dialog and summary, notes form) in light and dark at 1280px and 390px; everything also works offline.
+
 ## 0.7.0 - 2026-10-19
 ### Added
 - **Bulk actions.** A **Select** button on the list turns on select mode: every card gets a checkbox and a sticky action bar offers *Set category*, *Mark used recently*, *Mute reminders*, *Mark Cancel?*, *Delete*, *Select all* and *Clear*. Every action shows an **Undo** toast for 15 seconds. Undo puts back the exact previous values (and removes a flag that did not exist before instead of setting it to false); deleting restores whole rows with their ids. If an item was edited or deleted by something else before you undo, it is skipped and the message says so ("1 item could not be restored"). Deleting more than 3 asks first, in an accessible dialog that starts on Cancel. Selection clears after each action, Escape leaves select mode, a "Jump to actions" link moves keyboard focus to the bar, and on phones the bar is one compact scrolling row so it never covers the cards.

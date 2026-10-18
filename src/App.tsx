@@ -4,7 +4,7 @@ import { CURRENCIES } from './currency';
 import { CATEGORIES, CYCLES, CYCLE_LABEL, CYCLE_SHORT, isLive, type Cycle, type Subscription } from './types';
 import { confidenceLabel, detectRecurring, monthlyCost, nextOnOrAfter, parseStatementDetailed } from './detect';
 import { findDuplicates, groupPairKeys, mergeSubscriptions } from './dedupe';
-import { backupFileName, exportBackup, importBackup, parseBackup, type ImportMode } from './backup';
+import { backupFileName, exportBackup, importBackup, type ImportMode } from './backup';
 import { buildIcs } from './ics';
 import { cancelKit, cancelEmail, chatScript, disputeMessage, ctxOf, DIFFICULTY_LABEL } from './cancelKit';
 import { applyCheck, cancelState, checkCancellations, type CancelState } from './zombie';
@@ -37,6 +37,13 @@ import { convert, formatMoney } from './currency';
 import { DEFAULT_SETTINGS, loadSettings, saveSetting, type AppSettings } from './settings';
 import { categoryYearly, missingCurrencies, monthlyBase, subCurrency, totals as calcTotals, yearlyCost } from './savings';
 import { getInsights, visibleInsights, type Insight } from './insights';
+import RestorePreview from './RestorePreview';
+import QuickAdd from './QuickAdd';
+import ShortcutHelp from './ShortcutHelp';
+import ReviewDialog from './ReviewDialog';
+import { useShortcuts, type ShortcutAction } from './shortcuts';
+import { decisionPatch, getReviewQueue, shouldPromptReview, snoozeUntil, type ReviewDecision } from './review';
+import { NOTES_MAX, normalizeNotes, validateSubscription } from './validate';
 
 const today = () => localDate(); // the user's local calendar date, never UTC
 const daysUntil = (d: string) => dayDiff(today(), d);
@@ -78,7 +85,12 @@ export default function App() {
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [yearlySort, setYearlySort] = useState<YearlySort>('yearly');
-  const [pendingBackup, setPendingBackup] = useState<{ text: string; count: number } | null>(null);
+  const [pendingBackup, setPendingBackup] = useState<string | null>(null);
+  const [quickAdd, setQuickAdd] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [reviewQueue, setReviewQueue] = useState<Subscription[] | null>(null);
+  const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
   const backupRef = useRef<HTMLInputElement>(null);
   const [notifState, setNotifState] = useState<string>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -142,7 +154,12 @@ export default function App() {
     () => visibleInsights(getInsights(subs, today(), { base, rates }), settings.dismissedInsights),
     [subs, base, rates, settings.dismissedInsights]);
   const duplicateGroups = useMemo(() => findDuplicates(subs, dismissed), [subs, dismissed]);
-  const visibleSubs = subs; // "Select all" only ever covers what the list is showing
+  const visibleSubs = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    return q ? subs.filter(s => s.name.toLowerCase().includes(q)) : subs;
+  }, [subs, filter]); // "Select all" only ever covers what the list is showing
+  const dueReview = useMemo(() => getReviewQueue(subs, today(), base, rates), [subs, base, rates]);
+  const promptReview = shouldPromptReview(dueReview.length, settings.reviewPromptDismissedUntil, today());
   const digest = useMemo(() => getDigest(subs, settings, today()), [subs, settings.baseCurrency, settings.rates]);
   const dueList = useMemo(() => getDueReminders(subs, settings, today()), [subs, settings.reminderDays]);
 
@@ -198,11 +215,67 @@ export default function App() {
     });
   }
 
-  async function save(s: Subscription) {
-    if (!s.name.trim() || !(s.amount > 0)) return;
-    const row = { ...s, currency: s.currency ?? base };
+  async function save(s: Subscription): Promise<string | null> {
+    const problem = validateSubscription(s);
+    if (problem) return problem;
+    const row: Subscription = { ...s, name: s.name.trim(), notes: normalizeNotes(s.notes), currency: s.currency ?? base };
+    if (row.notes === undefined) delete row.notes;
     row.id ? await db.subs.put(row) : await db.subs.add({ ...row, createdAt: new Date().toISOString() });
-    setEditing(null); load();
+    setEditing(null); setQuickAdd(false); load();
+    return null;
+  }
+
+  function onShortcut(a: ShortcutAction) {
+    switch (a) {
+      case 'add': setQuickAdd(true); break;
+      case 'help': setShowHelp(true); break;
+      case 'filter':
+        if (view !== 'list' && view !== 'board') setView('list');
+        setTimeout(() => filterRef.current?.focus(), 0);
+        break;
+      case 'review': startReview(); break;
+      case 'go-board': setView('board'); break;
+      case 'go-yearly': setView('yearly'); break;
+      case 'go-digest': setView('digest'); break;
+      case 'go-list': setView('list'); break;
+    }
+  }
+  useShortcuts(onShortcut);
+
+  function startReview() {
+    if (!dueReview.length) { setNotice('Nothing to review: everything was reviewed in the last 30 days.'); return; }
+    setReviewQueue(dueReview);
+  }
+  async function decideReview(s: Subscription, d: ReviewDecision) {
+    const patch = decisionPatch(d, today());
+    if (Object.keys(patch).length) await db.subs.update(s.id!, patch);
+  }
+  async function finishReview(counts: Record<ReviewDecision, number>) {
+    const reviewed = reviewQueue ?? [];
+    setReviewQueue(null);
+    await load();
+    const n = counts.keep + counts.cancel;
+    if (!n) return;
+    const prior = reviewed.map(r => ({ id: r.id!, lastReviewedAt: r.lastReviewedAt, selectedForCancel: r.selectedForCancel }));
+    showToast(`Reviewed ${n} subscription${n === 1 ? '' : 's'}.`, 'Undo', 15000, async () => {
+      // put back exactly what was there before; only rows the review touched are in `prior`, skipped ones were never changed
+      await db.transaction('rw', db.subs, async () => {
+        for (const p of prior) if (await db.subs.get(p.id)) await db.subs.update(p.id, { lastReviewedAt: p.lastReviewedAt, selectedForCancel: p.selectedForCancel });
+      });
+      setToast(null); setNotice('Undid the review.');
+      await load();
+    });
+  }
+  async function snoozeReviewPrompt() { await saveSetting('reviewPromptDismissedUntil', snoozeUntil(today())); await load(); }
+  async function markReviewed(s: Subscription) {
+    const prev = s.lastReviewedAt;
+    await db.subs.update(s.id!, { lastReviewedAt: today() });
+    await load();
+    showToast(`Marked ${s.name} reviewed.`, 'Undo', 10000, async () => {
+      await db.subs.update(s.id!, { lastReviewedAt: prev });
+      setToast(null); setNotice(`Undid: ${s.name} is not marked reviewed.`);
+      await load();
+    });
   }
   // forget selected ids that no longer exist (deleted elsewhere, or by undo bookkeeping)
   useEffect(() => {
@@ -367,17 +440,17 @@ export default function App() {
     setError(''); setNotice('');
     if (!f) return;
     try {
-      const text = await f.text();
-      setPendingBackup({ text, count: parseBackup(text).subscriptions.length });
+      setPendingBackup(await f.text()); // the preview dialog validates it and reports any problem itself
     } catch (e) { setError((e as Error).message); }
     if (backupRef.current) backupRef.current.value = '';
   }
-  async function restore(mode: ImportMode) {
+  async function restore(mode: ImportMode, applySettings: boolean) {
     if (!pendingBackup) return;
-    if (mode === 'replace' && !confirm('Replace everything? All current subscriptions will be deleted and swapped for the backup.')) return;
     try {
-      const { added, skipped } = await importBackup(pendingBackup.text, mode);
-      setNotice(mode === 'replace' ? `Restored ${added} subscription${added === 1 ? '' : 's'} from backup.` : `Added ${added} from backup${skipped ? `, skipped ${skipped} already here` : ''}.`);
+      const { added, skipped, settingsWritten } = await importBackup(pendingBackup, mode, { applySettings });
+      const sub = `${added} subscription${added === 1 ? '' : 's'}`;
+      const extra = settingsWritten ? ` and ${settingsWritten} setting${settingsWritten === 1 ? '' : 's'}` : '';
+      setNotice(mode === 'replace' ? `Restored ${sub}${extra} from backup.` : `Restored ${sub}${extra} from backup${skipped ? `, skipped ${skipped} already here` : ''}.`);
     } catch (e) { setError((e as Error).message); }
     setPendingBackup(null); load();
   }
@@ -407,7 +480,7 @@ export default function App() {
         <nav className="actions" aria-label="Actions">
           <button className="btn primary" onClick={() => fileRef.current?.click()}>Scan statement ↗</button>
           <input ref={fileRef} type="file" accept=".csv,text/csv" hidden tabIndex={-1} aria-label="Bank statement CSV file" onChange={e => onFile(e.target.files?.[0])} />
-          <button className="btn add-top" onClick={() => setEditing(blank(base))}>+ Add</button>
+          <button className="btn add-top" onClick={() => setQuickAdd(true)}>+ Add <kbd className="kbd-hint" aria-hidden="true">N</kbd></button>
           <button className="btn" disabled={!subs.some(isLive)} onClick={() => download('subsweep-renewals.ics', buildIcs(subs), 'text/calendar')}>Calendar</button>
           {notifState === 'default' && <button className="btn" onClick={askNotif}>Reminders</button>}
         </nav>
@@ -429,6 +502,17 @@ export default function App() {
       )}
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}
+
+      {promptReview && (
+        <section className="card review-card" aria-label="Monthly review">
+          <h2>Time for a monthly review</h2>
+          <p className="muted">{dueReview.length} subscription{dueReview.length === 1 ? ' has' : 's have'} not been reviewed in the last 30 days. It takes about a minute.</p>
+          <div className="row-actions start">
+            <button className="btn primary" onClick={startReview}>Start review</button>
+            <button className="btn" onClick={snoozeReviewPrompt}>Not now</button>
+          </div>
+        </section>
+      )}
 
       <InsightCards insights={insights} money={n => money(n)} onDismiss={dismissInsight} onReview={reviewInsight} onUsed={i => markUsed(i.subIds[0])} />
 
@@ -545,7 +629,17 @@ export default function App() {
             </div>
           )}
         </div>
+        {subs.length > 0 && (
+          <div className="filter-row">
+            <label className="sr-only" htmlFor="name-filter">Filter subscriptions</label>
+            <input id="name-filter" ref={filterRef} type="search" className="filter" placeholder="Filter by name   ( / )" value={filter} autoComplete="off"
+              onChange={e => setFilter(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') { setFilter(''); e.currentTarget.blur(); } }} />
+            {filter && <span className="muted" role="status">{visibleSubs.length} of {subs.length} shown</span>}
+          </div>
+        )}
         {subs.length === 0 && <p className="empty">Nothing yet. Upload a statement CSV from your bank, or add a subscription by hand.</p>}
+        {subs.length > 0 && visibleSubs.length === 0 && <p className="empty">No subscription matches "{filter}". <button className="link" onClick={() => setFilter('')}>Clear the filter</button></p>}
         {visibleSubs.map(s => (
           <article className={`card sub${selectMode && selected.has(s.id!) ? ' selected' : ''}`} key={s.id}>
             <div className="row">
@@ -557,6 +651,7 @@ export default function App() {
                   <p className="muted">{s.category} · {CYCLE_LABEL[s.cycle].toLowerCase()} · next {s.nextRenewal} ({daysUntil(s.nextRenewal)}d)
                     {s.confidence !== undefined && <> · <span className={`conf conf-${confidenceLabel(s.confidence)}`} title={`Detected from a statement with ${Math.round(s.confidence * 100)}% confidence`}>{confidenceLabel(s.confidence)}</span></>}</p>
                   {s.priceCreep && <p className="creep">Price crept up: {money(s.priceCreep.from, s.currency)} → {money(s.priceCreep.to, s.currency)}</p>}
+                  {s.notes && <p className="note-text"><span aria-hidden="true">📝 </span><span className="sr-only">Note: </span>{s.notes}</p>}
                 </div>
               </div>
               <div className="price">{money(s.amount, s.currency)}<small>/{cycleShort(s.cycle)}</small>
@@ -567,6 +662,7 @@ export default function App() {
             <div className="row-actions">
               {(s.priceHistory?.length ?? 0) >= 2 && <button className="link" onClick={() => setChartFor(s)}>Price history</button>}
               {isLive(s) && <ReminderMenu sub={s} now={today()} onChange={patch => patchSub(s.id!, patch)} />}
+              {isLive(s) && <button className="link" onClick={() => markReviewed(s)} title={s.lastReviewedAt ? `Last reviewed ${s.lastReviewedAt}` : 'Never reviewed'}>Mark reviewed</button>}
               <button className="link" onClick={() => setDetail(s)}>{isLive(s) ? 'Cancel…' : 'Status'}</button>
               <button className="link" onClick={() => setEditing(s)}>Edit</button>
               <button className="link danger" onClick={() => remove(s.id!)}>Remove</button>
@@ -607,6 +703,8 @@ export default function App() {
               ? <p className="error">Set an exchange rate for {subCurrency(detail, base)} to see what this costs in {base}. <button className="link" onClick={() => { setDetail(null); goToRates(); }}>Set rate</button></p>
               : <p className="muted">That's about {money(m)} a month, {money(m * 12)} a year{detail.isTrial ? ' once the trial converts' : ''}.</p>; })()}
           {detail.lastUsedAt && <p className="muted">You last marked this used on {detail.lastUsedAt}.</p>}
+          {detail.lastReviewedAt && <p className="muted">Last reviewed on {detail.lastReviewedAt}.</p>}
+          {detail.notes && <p className="note-text"><b>Note:</b> {detail.notes}</p>}
           {(detail.priceHistory?.length ?? 0) > 1 && (
             <>
             <div className="row-actions start"><button className="btn" onClick={() => setChartFor(detail)}>Show price chart</button></div>
@@ -644,7 +742,7 @@ export default function App() {
       <ReminderSettings windows={settings.reminderDays} notifState={notifState} onToggle={setReminderDay} onAskPermission={askNotif} />
 
       <AppSettingsCard pwa={pwa} version={__APP_VERSION__} hasSubscriptions={subs.length > 0} sampleLoaded={settings.sampleIds.length > 0}
-        onInstall={installApp} onLoadSample={loadSample} onRemoveSample={removeSample} />
+        onInstall={installApp} onLoadSample={loadSample} onRemoveSample={removeSample} onShortcuts={() => setShowHelp(true)} onReview={startReview} />
 
       <section className="card">
         <h2>Backup</h2>
@@ -656,16 +754,11 @@ export default function App() {
         </div>
       </section>
 
-      {pendingBackup && (
-        <Modal onClose={() => setPendingBackup(null)} title="Restore from backup">
-          <p>This backup contains <b>{pendingBackup.count}</b> subscription{pendingBackup.count === 1 ? '' : 's'}.</p>
-          <p className="muted"><b>Merge</b> adds the ones you're missing and skips any that already exist. <b>Replace</b> deletes your current data first.</p>
-          <div className="row-actions">
-            <button className="btn" onClick={() => restore('replace')}>Replace…</button>
-            <button className="btn primary" onClick={() => restore('merge')}>Merge</button>
-          </div>
-        </Modal>
-      )}
+      {pendingBackup !== null && <RestorePreview text={pendingBackup} onRestore={restore} onClose={() => setPendingBackup(null)} />}
+      {quickAdd && <QuickAdd existing={subs} base={base} today={today()} categoryFor={guessCategory} onAdd={save}
+        onMore={d => { setQuickAdd(false); setEditing(d); }} onClose={() => setQuickAdd(false)} />}
+      {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
+      {reviewQueue && <ReviewDialog queue={reviewQueue} money={money} onDecide={decideReview} onFinish={finishReview} />}
 
       {pendingDelete && (
         <ConfirmDialog
@@ -685,8 +778,8 @@ export default function App() {
       {textModal && <TextModal title={textModal.title} text={textModal.text} onClose={() => setTextModal(null)} />}
       {editing && <EditForm sub={editing} base={base} onSave={save} onCancel={() => setEditing(null)} />}
       </main>
-      {!selectMode && <button className="fab" onClick={() => setEditing(blank(base))}>+ Add subscription</button>}
-      <footer>Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
+      {!selectMode && <button className="fab" onClick={() => setQuickAdd(true)}>+ Add subscription</button>}
+      <footer><button className="link" onClick={() => setShowHelp(true)}>Keyboard shortcuts</button> · Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
     </div>
   );
 }
@@ -757,12 +850,13 @@ function Converted({ s, base, rates, money, onSetRate }: { s: Subscription; base
     : <small className="block">≈ {money(c)}</small>;
 }
 
-function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: string; onSave: (s: Subscription) => void; onCancel: () => void }) {
+function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: string; onSave: (s: Subscription) => Promise<string | null> | void; onCancel: () => void }) {
   const [s, setS] = useState(sub);
+  const [problem, setProblem] = useState('');
   const set = <K extends keyof Subscription>(k: K, v: Subscription[K]) => setS(p => ({ ...p, [k]: v }));
   return (
     <Modal title={sub.id ? 'Edit subscription' : 'Add subscription'} onClose={onCancel}>
-      <form onSubmit={e => { e.preventDefault(); onSave({ ...s, currency: s.currency ?? base, category: s.category || guessCategory(s.name) }); }} className="form">
+      <form onSubmit={async e => { e.preventDefault(); setProblem((await onSave({ ...s, currency: s.currency ?? base, category: s.category || guessCategory(s.name) })) ?? ''); }} className="form" noValidate>
         <label>Name<input required value={s.name} onChange={e => set('name', e.target.value)} /></label>
         <div className="two">
           <label>Amount<input required type="number" inputMode="decimal" min="0.01" step="0.01" value={s.amount || ''} onChange={e => set('amount', +e.target.value)} /></label>
@@ -779,6 +873,10 @@ function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: st
         <label>Category
           <select value={s.category} onChange={e => set('category', e.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
         <label className="check"><input type="checkbox" checked={s.isTrial} onChange={e => set('isTrial', e.target.checked)} /> This is a free trial (remind me before it converts)</label>
+        <label>Notes (optional)
+          <textarea className="textbox" rows={3} maxLength={NOTES_MAX} value={s.notes ?? ''} aria-describedby="notes-count" onChange={e => set('notes', e.target.value)} /></label>
+        <p id="notes-count" className="muted notes-count"><small>{(s.notes ?? '').length} / {NOTES_MAX}</small></p>
+        {problem && <p className="error" role="alert">{problem}</p>}
         <div className="row-actions"><button type="button" className="btn" onClick={onCancel}>Cancel</button><button className="btn primary">Save</button></div>
       </form>
     </Modal>

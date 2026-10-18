@@ -301,3 +301,21 @@ input.sel{flex:none;width:26px;height:26px}
 }
 
 .row-actions.start{justify-content:flex-start}
+
+/* v0.8: restore preview, quick-add, shortcuts, notes, review */
+kbd{font:inherit;font-size:.78rem;padding:1px 6px;border:1px solid var(--control);border-radius:6px;background:var(--card2)}
+.kbd-hint{margin-left:6px}
+.mode-pick{border:0;padding:0;margin:8px 0;display:flex;gap:8px;flex-wrap:wrap}
+.mode-pick legend{font-size:.9rem;margin-bottom:6px;padding:0}
+.restore-counts{margin:8px 0}
+.restore-table{width:100%;border-collapse:collapse;font-size:.88rem;margin:8px 0}
+.restore-table th,.restore-table td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top;font-weight:normal}
+.restore-table thead th{font-weight:600}
+.restore-table tbody th{font-weight:600}
+.filter-row{display:flex;gap:12px;align-items:center;margin:8px 0}
+.filter{flex:1 1 220px;min-height:44px;font:inherit;padding:0 14px;border:1px solid var(--control);border-radius:999px;background:var(--card);color:var(--fg)}
+.note-text{margin:6px 0 0;font-size:.88rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.notes-count{margin:-6px 0 0;text-align:right}
+.review-card{border-color:var(--accent)}
+@media (max-width:600px){.kbd-hint{display:none}}
+.card.sub .row-actions{flex-wrap:wrap}

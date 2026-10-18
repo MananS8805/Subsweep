@@ -1,8 +1,8 @@
 import { db } from './db';
 import type { Subscription } from './types';
 
-/** Every sample row carries this note, and the app shows a "sample data" banner while any of it is loaded. */
-export const SAMPLE_NOTE = 'Sample data (fake)';
+/** Every sample row carries this batch id (never a note, which is the user's own), and the app shows a banner while any of it is loaded. */
+export const SAMPLE_BATCH = 'sample-data';
 export const SAMPLE_BASE = 'INR';
 export const SAMPLE_RATES = { USD: 83, EUR: 90 } as const;
 
@@ -16,7 +16,7 @@ const shift = (today: string, days: number) => new Date(+new Date(today + 'T00:0
 export function sampleSubscriptions(today: string): Omit<Subscription, 'id'>[] {
   const at = (days: number) => shift(today, days);
   const stamp = (days: number) => `${at(days)}T09:00:00.000Z`;
-  const base = { isTrial: false, notes: SAMPLE_NOTE };
+  const base = { isTrial: false, importBatchId: SAMPLE_BATCH };
   return [
     { ...base, name: 'Netflix', amount: 649, currency: 'INR', cycle: 'monthly', nextRenewal: at(5), category: 'Streaming', priceCreep: { from: 499, to: 649 }, priceHistory: [{ date: at(-220), amount: 499 }, { date: at(-150), amount: 549 }, { date: at(-95), amount: 649 }], createdAt: stamp(-220), lastUsedAt: at(-2) },
     { ...base, name: 'Hotstar', amount: 299, currency: 'INR', cycle: 'monthly', nextRenewal: at(13), category: 'Streaming', createdAt: stamp(-220), lastUsedAt: at(-4) },
@@ -57,7 +57,7 @@ export async function loadSampleData(today: string): Promise<number> {
 
 export async function removeSampleData(ids: number[]): Promise<number> {
   return db.transaction('rw', db.subs, db.settings, async () => {
-    const existing = (await db.subs.bulkGet(ids)).filter((s): s is Subscription => !!s && s.notes === SAMPLE_NOTE);
+    const existing = (await db.subs.bulkGet(ids)).filter((s): s is Subscription => !!s && s.importBatchId === SAMPLE_BATCH);
     await db.subs.bulkDelete(existing.map(s => s.id!));
     await db.settings.put({ key: 'sampleIds', value: [] });
     return existing.length;

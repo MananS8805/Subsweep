@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from './db';
-import { exportBackup, importBackup, parseBackup, backupFileName, BackupError } from './backup';
+import { exportBackup, importBackup, parseBackup, previewBackup, backupFileName, BackupError } from './backup';
 import type { Subscription } from './types';
 
 const seed: Subscription[] = [
@@ -18,7 +18,7 @@ const wipe = () => Promise.all([db.subs.clear(), db.dismissedDuplicates.clear(),
 const seedDb = async () => {
   await db.subs.bulkAdd(seed);
   await db.dismissedDuplicates.bulkAdd([{ key: '1-2' }]);
-  await db.settings.put({ key: 'currency', value: 'USD' });
+  await db.settings.put({ key: 'baseCurrency', value: 'USD' });
 };
 
 beforeEach(async () => { await wipe(); });
@@ -30,13 +30,13 @@ describe('export / import round trip', () => {
     const text = JSON.stringify(await exportBackup());
     await wipe();
     const res = await importBackup(text, 'merge');
-    expect(res).toEqual({ added: 3, skipped: 0 });
+    expect(res).toMatchObject({ added: 3, skipped: 0 });
     expect(await snapshot()).toEqual(before);
   });
   it('writes the documented format and keeps dates exact', async () => {
     await seedDb();
     const b = JSON.parse(JSON.stringify(await exportBackup()));
-    expect(b).toMatchObject({ app: 'subsweep', version: 2, dismissedDuplicates: ['1-2'], settings: { currency: 'USD' } });
+    expect(b).toMatchObject({ app: 'subsweep', version: 2, dismissedDuplicates: ['1-2'], settings: { baseCurrency: 'USD' } });
     expect(typeof b.exportedAt).toBe('string');
     expect(b.subscriptions[0].createdAt).toBe('2026-01-02T10:20:30.456Z');
     expect(b.subscriptions[0].nextRenewal).toBe('2026-11-03');
@@ -119,7 +119,7 @@ describe('merge mode', () => {
     await db.subs.bulkAdd([{ ...seed[0], name: 'Netflix (edited locally)' }]);
     const text = JSON.stringify({ app: 'subsweep', version: 1, exportedAt: new Date().toISOString(), subscriptions: seed, dismissedDuplicates: [], settings: {} });
     const res = await importBackup(text, 'merge');
-    expect(res).toEqual({ added: 2, skipped: 1 });
+    expect(res).toMatchObject({ added: 2, skipped: 1 });
     const all = await db.subs.orderBy('id').toArray();
     expect(all.map(s => s.name)).toEqual(['Netflix (edited locally)', 'Hulu', 'Dropbox']);
   });
@@ -156,5 +156,72 @@ describe('replace mode and invalid files', () => {
     const b = parseBackup(JSON.stringify({ app: 'subsweep', version: 1, extra: 1, subscriptions: [{ ...seed[1], mystery: 'x' }] }));
     expect(b.subscriptions[0]).not.toHaveProperty('mystery');
     expect(b).not.toHaveProperty('extra');
+  });
+});
+
+describe('settings in backups and the restore preview', () => {
+  const file = (settings: unknown, subs: unknown[] = []) => JSON.stringify({ app: 'subsweep', version: 2, subscriptions: subs, settings });
+  const settingsOf = async () => Object.fromEntries((await db.settings.toArray()).map(r => [r.key, r.value]));
+
+  it('round-trips settings and lastReviewedAt, and only exports known keys', async () => {
+    await db.settings.bulkPut([{ key: 'baseCurrency', value: 'INR' }, { key: 'rates', value: { USD: 83 } }, { key: 'reminderDays', value: [1, 7] }, { key: 'mystery', value: 1 }]);
+    await db.subs.add({ ...seed[0], id: undefined, lastReviewedAt: '2026-10-01', notes: 'family plan' });
+    const text = JSON.stringify(await exportBackup());
+    expect(JSON.parse(text).settings.mystery).toBeUndefined();
+    await wipe();
+    await importBackup(text, 'replace');
+    expect(await settingsOf()).toEqual({ baseCurrency: 'INR', rates: { USD: 83 }, reminderDays: [1, 7] });
+    const row = (await db.subs.toArray())[0];
+    expect(row.lastReviewedAt).toBe('2026-10-01');
+    expect(row.notes).toBe('family plan');
+  });
+  it('a backup without settings leaves current settings untouched, in both modes', async () => {
+    await db.settings.put({ key: 'baseCurrency', value: 'EUR' });
+    for (const mode of ['merge', 'replace'] as const) {
+      await importBackup(JSON.stringify({ app: 'subsweep', version: 1, subscriptions: [] }), mode);
+      expect(await settingsOf()).toEqual({ baseCurrency: 'EUR' });
+    }
+  });
+  it('merge keeps existing settings unless asked, but fills ones that are absent', async () => {
+    await db.settings.put({ key: 'baseCurrency', value: 'EUR' });
+    const f = file({ baseCurrency: 'INR', reminderDays: [3] });
+    const r = await importBackup(f, 'merge');
+    expect(r.settingsWritten).toBe(1);
+    expect(await settingsOf()).toEqual({ baseCurrency: 'EUR', reminderDays: [3] });
+    await importBackup(f, 'merge', { applySettings: true });
+    expect((await settingsOf()).baseCurrency).toBe('INR');
+  });
+  it('replace applies file settings by default, never clears others, and can be declined', async () => {
+    await db.settings.bulkPut([{ key: 'baseCurrency', value: 'EUR' }, { key: 'reminderDays', value: [1] }]);
+    await importBackup(file({ baseCurrency: 'INR' }), 'replace', { applySettings: false });
+    expect(await settingsOf()).toEqual({ baseCurrency: 'EUR', reminderDays: [1] });
+    await importBackup(file({ baseCurrency: 'INR' }), 'replace');
+    expect(await settingsOf()).toEqual({ baseCurrency: 'INR', reminderDays: [1] });
+  });
+  it('rejects bad rates and unknown keys with warnings instead of applying them', async () => {
+    await db.settings.put({ key: 'rates', value: { USD: 80 } });
+    const f = file({ rates: { USD: -5, EUR: 'x' }, baseCurrency: 'dollars', evil: 1 });
+    const r = await importBackup(f, 'replace');
+    expect(r.warnings.length).toBeGreaterThanOrEqual(3);
+    expect(await settingsOf()).toEqual({ rates: { USD: 80 } });
+  });
+  it('preview reports counts and setting changes and writes nothing', async () => {
+    await db.subs.bulkAdd(seed);
+    await db.settings.put({ key: 'baseCurrency', value: 'EUR' });
+    const before = await snapshot();
+    const f = file({ baseCurrency: 'INR', reminderDays: [3] }, [{ ...seed[0] }, { ...seed[1], id: 77 }]);
+    const m = await previewBackup(f, 'merge');
+    expect(m.valid).toBe(true);
+    expect(m.counts).toMatchObject({ toAdd: 1, toSkip: 1, toReplace: 0, subscriptionsInFile: 2, existing: 3 });
+    expect(m.settingsChanges.map(c => c.key)).toEqual(['reminderDays']);
+    expect(m.settingsKept.map(c => c.key)).toEqual(['baseCurrency']);
+    const rep = await previewBackup(f, 'replace');
+    expect(rep.counts).toMatchObject({ toAdd: 2, toReplace: 3 });
+    expect(rep.settingsChanges.map(c => c.key).sort()).toEqual(['baseCurrency', 'reminderDays']);
+    expect(await snapshot()).toEqual(before);
+  });
+  it('preview of a broken or foreign file is invalid with readable errors', async () => {
+    expect((await previewBackup('nope', 'merge')).errors[0]).toMatch(/not valid JSON/);
+    expect((await previewBackup('{"app":"other"}', 'merge')).valid).toBe(false);
   });
 });

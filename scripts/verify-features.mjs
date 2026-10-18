@@ -43,7 +43,7 @@ const flip = async (page, label) => { await page.getByLabel(label).click(); awai
 const addManual = async (page, name, amount) => {
   await page.locator('button.add-top').click();
   await page.getByLabel('Name').fill(name); await page.getByLabel('Amount').fill(String(amount));
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.waitForSelector('[role=dialog]', { state: 'detached' });
 };
 const statText = (page, label) => page.locator('.summary .stat', { hasText: label }).first().locator('strong').innerText();
@@ -268,7 +268,7 @@ writeFileSync(join(tmp, 'weekly-varying.csv'), 'Date,Description,Amount\n' + [40
   check('wiped', (await subs(page)).length === 0);
   await page.locator('input[type=file][accept*=json]').setInputFiles(file);
   await page.waitForSelector('[role=dialog]');
-  await page.getByRole('button', { name: 'Merge' }).click();
+  await page.getByRole('button', { name: 'Merge into my data' }).click();
   await page.waitForSelector('[role=dialog]', { state: 'detached' });
   await page.waitForTimeout(500);
   const back = await subs(page);

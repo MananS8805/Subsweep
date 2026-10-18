@@ -19,7 +19,9 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 - Bulk actions: select several subscriptions to set a category, mark used, mute, mark Cancel? or delete, each with Undo
 - A price-history chart for any subscription whose price has changed, with a text alternative for screen readers
 - A "Next 30 days" view of everything about to be charged, by week, with a copyable summary and a print layout
-- JSON backup and restore (Merge or Replace)
+- JSON backup and restore (Merge or Replace) that includes your settings, with a preview of exactly what a restore will change
+- Keyboard shortcuts and a quick-add dialog, a name filter, and notes on every subscription
+- A monthly review that walks through what you have not looked at in 30 days (Keep, Cancel? or Skip)
 - Reminders: choose 1, 3 or 7 days before a renewal, mute or snooze any subscription, plus an `.ics` calendar export with 1-day-before alarms
 - Installable PWA that works offline, with a safe in-app update prompt
 - Keyboard-operable, screen-reader friendly, light and dark themes, phone-friendly layout
@@ -42,6 +44,10 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 | ![Select mode with the bulk action bar](docs/screenshots/bulk-select.png) | ![Price history chart](docs/screenshots/price-chart.png) |
 | **Next 30 days.** What is about to be charged, by week, with trials called out. | **On a phone.** The digest in a single column. |
 | ![30-day digest](docs/screenshots/digest.png) | <img src="docs/screenshots/mobile-digest.png" alt="Phone: the 30-day digest" width="260"> |
+| **Restore preview.** See what a restore will add, skip or change before anything is written. | **Monthly review.** Keep, Cancel? or Skip, one at a time. |
+| ![Restore preview](docs/screenshots/restore-preview.png) | ![Monthly review](docs/screenshots/review.png) |
+| **Keyboard shortcuts.** The cheat sheet, also on `?`. | |
+| ![Keyboard shortcuts](docs/screenshots/shortcuts.png) | |
 | **Settings.** Base currency, manual rates, install, sample data. | **Light theme.** Follows your system setting. |
 | ![Settings](docs/screenshots/desktop-settings.png) | ![Light theme](docs/screenshots/light-theme.png) |
 
@@ -85,6 +91,7 @@ node scripts/verify-prod.mjs                  # terminal 2: headers/CSP, keyboar
 node scripts/verify-update.mjs                # service worker update flow (banner, no auto-reload, data untouched)
 node scripts/verify-features.mjs              # import preview and undo, reminders (windows, mute, snooze, no duplicates), upgrade, backup, offline
 node scripts/verify-bulk.mjs                  # bulk actions and undo, price chart, 30-day digest (checked against hand-computed totals), offline
+node scripts/verify-workflow.mjs              # settings in backups and the restore preview, shortcuts and quick-add, notes and monthly review, offline
 npm run screenshots                           # regenerate docs/screenshots
 npm run icons                                 # re-render the PNG icons from public/icon.svg
 npm run contrast                              # print the contrast ratios for the colour tokens
@@ -158,7 +165,34 @@ Cards at the top flag: services that overlap (two or more music, video, storage,
 Cancelled items stay on the board but are excluded from totals, reminders and the calendar export. Templates are a starting point, not legal advice, and cancellation steps can change, so always confirm on the provider's site.
 
 ## Backup and restore
-Use **Download backup** to save `subsweep-backup-YYYY-MM-DD.json` (subscriptions, dismissed duplicates, settings). **Restore from backup** offers *Merge* (adds missing, skips ids that already exist) or *Replace* (asks first). Files are validated completely before anything is written; wrong-app files, newer formats and malformed JSON are rejected with a message and your data is left untouched. Backups never leave your device.
+**Download backup** saves `subsweep-backup-YYYY-MM-DD.json`: subscriptions (with notes, price history and review dates), dismissed duplicates and your settings (base currency, exchange rates, reminder days, dismissed insights, review snooze). **Restore from backup** opens a preview that writes nothing until you confirm:
+
+- **Merge** adds subscriptions you are missing and skips ids that already exist. Your current settings are kept; settings you have not set yet are filled in. Tick *Also overwrite my settings* to take the file's settings instead.
+- **Replace** deletes your current subscriptions and loads the file's, and brings the file's settings with it unless you untick the box. It needs an explicit confirmation tick.
+- A backup with no settings (anything from before v0.8) never changes yours, in either mode.
+- The preview lists each setting that differs ("Will change" or "Kept as it is"). Malformed settings, such as a negative exchange rate or a bad currency code, are shown as warnings and never applied; settings this version does not know are ignored.
+
+Files are validated completely before anything is written, and the restore is a single transaction. Wrong-app files, newer formats and malformed JSON are rejected with a message and your data is left untouched. Backups never leave your device.
+
+## Keyboard shortcuts
+Press `?` any time for the list. They work when you are not typing in a field and no dialog is open.
+
+| Keys | What it does |
+| --- | --- |
+| `N` | Quick-add a subscription |
+| `/` | Filter the list by name (Escape clears it) |
+| `?` | Show the cheat sheet |
+| `R` | Start the monthly review |
+| `G` then `E` / `Y` / `D` / `L` | Go to Explore / Yearly / Next 30 days / List (within one second) |
+| `Esc` | Close a dialog or leave select mode |
+| `Ctrl/Cmd` + `Z` | Undo while the Undo bar is showing |
+
+Everything here also has a button, and shortcuts are ignored while you type, with Ctrl/Cmd/Alt held, or while a dialog is open.
+
+## Notes and monthly review
+Every subscription can carry a plain-text note (up to 500 characters) such as "family plan, split with Sam" or "ask for the annual discount". It appears on the card and is included in backups.
+
+The **monthly review** goes through live subscriptions you have not reviewed in the last 30 days, most expensive first. For each one choose *Keep* (stamps today), *Cancel?* (stamps today and ticks it for the savings simulator) or *Skip* (changes nothing). Each choice is saved immediately, so closing the dialog midway loses nothing, and an Undo toast restores exactly what was there before. A card on the page offers the review and can be hidden with *Not now* for 7 days; **Mark reviewed** on a card does it for one subscription.
 
 ## Limitations
 - Browser notifications fire only when the app is opened (a true background push needs a server, which SubSweep deliberately does not have); the `.ics` export covers background reminders.
