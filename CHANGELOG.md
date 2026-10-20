@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0 - 2026-10-20
+### Added
+- **Payment method labels.** Each subscription can carry an optional nickname such as "Visa ending 4242" (trimmed, up to 40 characters). It is a suggestion-backed field in the add and edit forms and in quick-add, shows as a chip on the card, and is included in backups. "Visa 4242" and "visa 4242 " are the same label and keep the first spelling used. A label that looks like a 13 to 19 digit card number is refused with a live error and a hint to use a nickname; it is also dropped on import, so a full card number is never stored.
+- **Payment method filter** on the list (All, each label with its count, None), combined with the name search. Labels no longer in use fall back to All.
+- **By payment method** card: per label, the number of subscriptions and monthly cost in your base currency with a CSS-only bar, a "No label" row, and subscriptions whose currency has no exchange rate counted separately as "rate needed" instead of as 0.
+- **Bulk "Set payment method"** in select mode, with Undo that restores the exact previous labels (and removes the field where there was none).
+- **CSV export.** *Export CSV* in Settings (subscriptions: name, category, amount, currency, cycle, next_renewal, monthly_base, yearly_base, base_currency, payment_method, trial, cancel_flag, muted, last_reviewed, notes) and on the Next 30 days screen (date, name, amount_base, base_currency, week_start, status: normal, muted, trial or rate_needed). RFC 4180 quoting, a UTF-8 byte order mark so Excel reads non-ASCII names, dot decimals with 2 places, text cells starting with `=`, `+`, `-`, `@`, tab or carriage return get a leading `'` so spreadsheets do not run them as formulas, a missing rate leaves `monthly_base` empty rather than 0, and an empty list says "Nothing to export yet" instead of downloading. Files are named `subsweep-subscriptions-YYYY-MM-DD.csv` and `subsweep-next30-YYYY-MM-DD.csv` using your local date.
+- **Welcome panel** for a first run with no subscriptions: *Scan a bank statement CSV*, *Add one manually*, *Try with sample data*, a plain "Everything stays in this browser. Nothing is uploaded." line and *Skip*. It is dismissed for good when a subscription is added, imported, restored or loaded from the sample, or skipped, and *Show welcome again* in Settings brings it back for an empty SubSweep.
+- **Sample data is clearly marked**: a "Sample" chip on every sample card, the sample banner, **Undo** after *Remove sample data*, and sample rows (and their ids) are never exported in backups or CSV.
+- **Empty states** with plain text and no decorative images: no list results (with *Clear filters*), Insights with fewer than 2 subscriptions, Next 30 days with nothing due, and the monthly review with nothing to review.
+- `scripts/verify-data.mjs`: end-to-end checks for all of the above on the production build.
+
+### Changed
+- Merging duplicates keeps a non-empty payment method.
+- Saving with an invalid payment method shows the message instead of saving.
+
+### Notes
+- The backup format is still version 2 and every new field is optional (`paymentMethod`, the `onboardingDismissed` setting), so v0.1 to v0.8 backups import exactly as before. No database changes.
+- The existing sample data set (14 subscriptions in INR, USD and EUR with insights, a trial, price changes and cancellations) is reused for onboarding rather than adding a second, smaller one. Sample rows are recognised by their batch id.
+- Verified on the production build: no axe violations on the welcome panel, payment chips, filter, breakdown, bulk dialog, quick-add error and every empty state in light and dark at 1280px, 390px and 320px; everything also works offline.
+
 ## 0.8.0 - 2026-10-19
 ### Added
 - **Settings travel with your backup.** Base currency, exchange rates, reminder days, dismissed insights and the monthly-review snooze are saved in the backup file, so restoring after clearing site data brings your whole setup back. Settings are validated like everything else: a bad rate or an unknown currency code is shown as a warning and never applied, unknown keys are ignored, and a backup from an older version with no settings leaves yours exactly as they are.

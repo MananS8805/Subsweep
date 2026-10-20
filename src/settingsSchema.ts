@@ -4,7 +4,7 @@ import { normalizeWindows } from './reminders';
 /** Every setting SubSweep stores. A backup carries these; anything else in a file is ignored. */
 export const SETTING_KEYS = [
   'baseCurrency', 'rates', 'ratesNeedReview', 'reminderDays', 'reminderBannerDismissed',
-  'dismissedInsights', 'sampleIds', 'reviewPromptDismissedUntil',
+  'dismissedInsights', 'sampleIds', 'reviewPromptDismissedUntil', 'onboardingDismissed',
 ] as const;
 export type SettingKey = typeof SETTING_KEYS[number];
 export const isKnownSetting = (k: string): k is SettingKey => (SETTING_KEYS as readonly string[]).includes(k);
@@ -47,7 +47,7 @@ export function cleanSettings(raw: unknown): CleanSettings {
         if (bad === 0 || Object.keys(good).length > 0) out.values.rates = good;
         break;
       }
-      case 'ratesNeedReview': case 'reminderBannerDismissed':
+      case 'ratesNeedReview': case 'reminderBannerDismissed': case 'onboardingDismissed':
         if (typeof v === 'boolean') out.values[key] = v; else out.warnings.push(`Ignored the setting "${key}": it should be true or false.`);
         break;
       case 'reminderDays': {
@@ -74,7 +74,7 @@ export function cleanSettings(raw: unknown): CleanSettings {
 const LABELS: Record<SettingKey, string> = {
   baseCurrency: 'Base currency', rates: 'Exchange rates', ratesNeedReview: 'Rates need review', reminderDays: 'Reminder days',
   reminderBannerDismissed: 'Blocked-notifications note dismissed', dismissedInsights: 'Dismissed insights', sampleIds: 'Sample data rows',
-  reviewPromptDismissedUntil: 'Monthly review reminder snoozed until',
+  reviewPromptDismissedUntil: 'Monthly review reminder snoozed until', onboardingDismissed: 'Welcome panel dismissed',
 };
 export const settingLabel = (key: string) => (isKnownSetting(key) ? LABELS[key] : key);
 

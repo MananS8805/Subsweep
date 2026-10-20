@@ -3,6 +3,8 @@ import { CYCLES, type CancelStatus, type Cycle, type DismissedDuplicate, type Su
 import { isCurrencyCode } from './currency';
 import { cleanSettings, isKnownSetting, sameSetting, type SettingKey } from './settingsSchema';
 import { NOTES_MAX } from './validate';
+import { looksLikeCardNumber, normalizeLabel } from './paymentMethods';
+import { isSample } from './onboarding';
 
 export const BACKUP_APP = 'subsweep';
 export const BACKUP_VERSION = 2; // v2 adds the cancel & verify fields; v1 files still restore. Later fields are optional, so the version stays 2.
@@ -25,10 +27,10 @@ export async function exportBackup(): Promise<Backup> {
   ]);
   return {
     app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: new Date().toISOString(),
-    subscriptions,
+    subscriptions: subscriptions.filter(s => !isSample(s)), // fake sample rows are never exported
     dismissedDuplicates: dismissed.map(d => d.key),
     // every setting SubSweep stores (base currency, rates, reminder days, dismissed insights, review snooze...), nothing else
-    settings: Object.fromEntries(settings.filter(r => isKnownSetting(r.key)).map(r => [r.key, r.value])),
+    settings: Object.fromEntries(settings.filter(r => isKnownSetting(r.key) && r.key !== 'sampleIds').map(r => [r.key, r.value])),
   };
 }
 
@@ -68,6 +70,11 @@ function cleanSub(raw: unknown, i: number): Subscription {
   if (raw.notes !== undefined) {
     if (typeof raw.notes !== 'string') throw bad('notes');
     if (raw.notes.trim()) sub.notes = raw.notes.trim().slice(0, NOTES_MAX); // plain text, at most 500 characters
+  }
+  if (raw.paymentMethod !== undefined) {
+    if (typeof raw.paymentMethod !== 'string') throw bad('paymentMethod');
+    const label = normalizeLabel(raw.paymentMethod);
+    if (label && !looksLikeCardNumber(label)) sub.paymentMethod = label; // a card-number-like label is dropped, never stored
   }
   if (raw.lastReviewedAt !== undefined) {
     if (!isIsoDay(raw.lastReviewedAt)) throw bad('lastReviewedAt');

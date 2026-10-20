@@ -16,7 +16,7 @@ import InsightCards from './InsightCards';
 import LiveRegion from './LiveRegion';
 import AppSettingsCard from './AppSettings';
 import { applyUpdate, promptInstall, usePwa } from './pwa';
-import { loadSampleData, removeSampleData } from './sampleData';
+import { loadSampleData, removeSampleData, SAMPLE_BATCH } from './sampleData';
 import { modalDepth, nextTabIndex } from './a11y';
 import Modal from './Modal';
 import Toast from './Toast';
@@ -44,6 +44,14 @@ import ReviewDialog from './ReviewDialog';
 import { useShortcuts, type ShortcutAction } from './shortcuts';
 import { decisionPatch, getReviewQueue, shouldPromptReview, snoozeUntil, type ReviewDecision } from './review';
 import { NOTES_MAX, normalizeNotes, validateSubscription } from './validate';
+import PaymentField from './PaymentField';
+import PaymentBreakdown from './PaymentBreakdown';
+import MethodDialog from './MethodDialog';
+import Welcome from './Welcome';
+import EmptyState from './EmptyState';
+import { canonicalLabel, listMethods, matchesMethod, normalizeLabel, totalsByMethod } from './paymentMethods';
+import { csvFileName, digestToCsv, hasDataRows, subscriptionsToCsv } from './exportCsv';
+import { isSample, shouldShowOnboarding } from './onboarding';
 
 const today = () => localDate(); // the user's local calendar date, never UTC
 const daysUntil = (d: string) => dayDiff(today(), d);
@@ -90,6 +98,9 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [reviewQueue, setReviewQueue] = useState<Subscription[] | null>(null);
   const [filter, setFilter] = useState('');
+  const [methodFilter, setMethodFilter] = useState('all');
+  const [methodDialog, setMethodDialog] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
   const backupRef = useRef<HTMLInputElement>(null);
   const [notifState, setNotifState] = useState<string>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
@@ -102,6 +113,7 @@ export default function App() {
     setSettings(await loadSettings());
     setSubs(await db.subs.orderBy('nextRenewal').toArray());
     setDismissed((await db.dismissedDuplicates.toArray()).map(d => d.key));
+    setLoaded(true);
   };
   useEffect(() => { load(); }, []);
 
@@ -156,8 +168,15 @@ export default function App() {
   const duplicateGroups = useMemo(() => findDuplicates(subs, dismissed), [subs, dismissed]);
   const visibleSubs = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return q ? subs.filter(s => s.name.toLowerCase().includes(q)) : subs;
-  }, [subs, filter]); // "Select all" only ever covers what the list is showing
+    return subs.filter(s => (!q || s.name.toLowerCase().includes(q)) && matchesMethod(s, methodFilter));
+  }, [subs, filter, methodFilter]);
+  const methods = useMemo(() => listMethods(subs), [subs]);
+  const methodRows = useMemo(() => totalsByMethod(subs, { baseCurrency: base, rates }), [subs, base, rates]);
+  const showWelcome = loaded && shouldShowOnboarding(subs.length, settings);
+  // a filter whose label no longer exists (last item with it was deleted) falls back to All
+  useEffect(() => { if (methodFilter !== 'all' && methodFilter !== 'none' && !methods.some(m => m.label.toLowerCase() === methodFilter.toLowerCase())) setMethodFilter('all'); }, [methods, methodFilter]);
+  // the welcome panel never comes back once there has been a subscription (added, imported, restored or sample)
+  useEffect(() => { if (loaded && subs.length > 0 && !settings.onboardingDismissed) saveSetting('onboardingDismissed', true).then(load); }, [loaded, subs.length, settings.onboardingDismissed]); // "Select all" only ever covers what the list is showing
   const dueReview = useMemo(() => getReviewQueue(subs, today(), base, rates), [subs, base, rates]);
   const promptReview = shouldPromptReview(dueReview.length, settings.reviewPromptDismissedUntil, today());
   const digest = useMemo(() => getDigest(subs, settings, today()), [subs, settings.baseCurrency, settings.rates]);
@@ -218,8 +237,9 @@ export default function App() {
   async function save(s: Subscription): Promise<string | null> {
     const problem = validateSubscription(s);
     if (problem) return problem;
-    const row: Subscription = { ...s, name: s.name.trim(), notes: normalizeNotes(s.notes), currency: s.currency ?? base };
+    const row: Subscription = { ...s, name: s.name.trim(), notes: normalizeNotes(s.notes), paymentMethod: canonicalLabel(s.paymentMethod ?? '', subs.filter(x => x.id !== s.id)), currency: s.currency ?? base };
     if (row.notes === undefined) delete row.notes;
+    if (!row.paymentMethod) delete row.paymentMethod;
     row.id ? await db.subs.put(row) : await db.subs.add({ ...row, createdAt: new Date().toISOString() });
     setEditing(null); setQuickAdd(false); load();
     return null;
@@ -243,7 +263,6 @@ export default function App() {
   useShortcuts(onShortcut);
 
   function startReview() {
-    if (!dueReview.length) { setNotice('Nothing to review: everything was reviewed in the last 30 days.'); return; }
     setReviewQueue(dueReview);
   }
   async function decideReview(s: Subscription, d: ReviewDecision) {
@@ -397,15 +416,44 @@ export default function App() {
     if (modalDepth() > 0 && !confirm('You have a form open. Reload now and lose anything you have not saved?')) return;
     applyUpdate();
   }
-  async function loadSample() {
-    if (!confirm('Load sample data?\n\nThis adds 14 fake subscriptions (INR, USD, EUR) with sample exchange rates so you can try SubSweep. You can remove them again from the App card.')) return;
+  async function loadSample(ask = true) {
+    if (ask && !confirm('Load sample data?\n\nThis adds 14 fake subscriptions (INR, USD, EUR) with sample exchange rates so you can try SubSweep. You can remove them again from the App card.')) return;
     try { const n = await loadSampleData(today()); setNotice(`Loaded ${n} sample subscriptions.`); } catch (e) { setError((e as Error).message); }
     await load();
   }
   async function removeSample() {
-    const n = await removeSampleData(settings.sampleIds);
-    setNotice(`Removed ${n} sample subscription${n === 1 ? '' : 's'}.`);
+    // keep the removed rows and the sample settings so Undo can put everything back exactly
+    const ids = settings.sampleIds;
+    const rows = (await db.subs.bulkGet(ids)).filter((s): s is Subscription => !!s && s.importBatchId === SAMPLE_BATCH);
+    const prior = { baseCurrency: settings.baseCurrency, rates: settings.rates };
+    const n = await removeSampleData(ids);
     await load();
+    showToast(`Removed ${n} sample subscription${n === 1 ? '' : 's'}.`, 'Undo', 15000, async () => {
+      if (await db.subs.count() === 0) {
+        await db.subs.bulkPut(rows);
+        await db.settings.bulkPut([{ key: 'sampleIds', value: rows.map(r => r.id!) }, { key: 'baseCurrency', value: prior.baseCurrency }, { key: 'rates', value: prior.rates }]);
+        setNotice(`Restored ${rows.length} sample subscriptions.`);
+      } else setNotice('Could not undo: you have added subscriptions since.');
+      setToast(null);
+      await load();
+    });
+  }
+  async function skipWelcome() { await saveSetting('onboardingDismissed', true); await load(); setNotice('Welcome skipped. You can bring it back from Settings.'); }
+  async function showWelcomeAgain() {
+    await saveSetting('onboardingDismissed', false); await load();
+    setNotice(subs.length ? 'The welcome panel will show again when you have no subscriptions.' : 'Welcome panel shown.');
+  }
+  function exportSubsCsv() {
+    const csv = subscriptionsToCsv(subs, settings);
+    if (!hasDataRows(csv)) { setNotice('Nothing to export yet.'); return; }
+    download(csvFileName('subscriptions', today()), csv, 'text/csv;charset=utf-8');
+    setNotice('Exported your subscriptions as a CSV file.');
+  }
+  function exportDigestCsv() {
+    const csv = digestToCsv(digest, subs, base);
+    if (!hasDataRows(csv)) { setNotice('Nothing to export yet.'); return; }
+    download(csvFileName('next30', today()), csv, 'text/csv;charset=utf-8');
+    setNotice('Exported the next 30 days as a CSV file.');
   }
   function onTabKeys(e: React.KeyboardEvent) {
     const i = VIEWS.findIndex(([id]) => id === view);
@@ -503,6 +551,8 @@ export default function App() {
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}
 
+      {showWelcome && <Welcome onScan={() => fileRef.current?.click()} onAdd={() => setQuickAdd(true)} onSample={() => loadSample(false)} onSkip={skipWelcome} />}
+
       {promptReview && (
         <section className="card review-card" aria-label="Monthly review">
           <h2>Time for a monthly review</h2>
@@ -514,6 +564,7 @@ export default function App() {
         </section>
       )}
 
+      {subs.length === 1 && (view === 'board' || view === 'list') && <EmptyState title="Insights need a few more subscriptions">Add at least 2 and SubSweep will point out overlaps, unused services, price rises and trials about to convert.</EmptyState>}
       <InsightCards insights={insights} money={n => money(n)} onDismiss={dismissInsight} onReview={reviewInsight} onUsed={i => markUsed(i.subIds[0])} />
 
       <div className="view-switch" role="tablist" aria-label="View" onKeyDown={onTabKeys}>
@@ -544,7 +595,7 @@ export default function App() {
       )}
 
       {view === 'digest' && (
-        <DigestView digest={digest} subs={subs} money={money} onOpen={setDetail} onCopy={copyDigest} onPrint={() => window.print()} onSetRates={goToRates} />
+        <DigestView digest={digest} subs={subs} money={money} onOpen={setDetail} onCopy={copyDigest} onPrint={() => window.print()} onCsv={exportDigestCsv} onSetRates={goToRates} />
       )}
       </div>
 
@@ -619,6 +670,8 @@ export default function App() {
         </section>
       )}
 
+      {(view === 'board' || view === 'list') && methods.length > 0 && <PaymentBreakdown rows={methodRows} money={n => money(n)} onSetRates={goToRates} />}
+
       {(view === 'board' || view === 'list') && <section aria-labelledby="all-subs-title" className={selectMode ? 'select-pad' : undefined}>
         <div className="row sort-row">
           <h2 id="all-subs-title">All subscriptions</h2>
@@ -635,11 +688,19 @@ export default function App() {
             <input id="name-filter" ref={filterRef} type="search" className="filter" placeholder="Filter by name   ( / )" value={filter} autoComplete="off"
               onChange={e => setFilter(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') { setFilter(''); e.currentTarget.blur(); } }} />
-            {filter && <span className="muted" role="status">{visibleSubs.length} of {subs.length} shown</span>}
+            {methods.length > 0 && (
+              <label className="method-filter"><span className="sr-only">Payment method filter</span>
+                <select value={methodFilter} onChange={e => setMethodFilter(e.target.value)} aria-label="Filter by payment method">
+                  <option value="all">All payment methods</option>
+                  {methods.map(m => <option key={m.label} value={m.label}>{m.label} ({m.count})</option>)}
+                  <option value="none">No payment method</option>
+                </select></label>
+            )}
+            {(filter || methodFilter !== 'all') && <span className="muted" role="status">{visibleSubs.length} of {subs.length} shown</span>}
           </div>
         )}
-        {subs.length === 0 && <p className="empty">Nothing yet. Upload a statement CSV from your bank, or add a subscription by hand.</p>}
-        {subs.length > 0 && visibleSubs.length === 0 && <p className="empty">No subscription matches "{filter}". <button className="link" onClick={() => setFilter('')}>Clear the filter</button></p>}
+        {subs.length === 0 && !showWelcome && <p className="empty">Nothing yet. Upload a statement CSV from your bank, or add a subscription by hand.</p>}
+        {subs.length > 0 && visibleSubs.length === 0 && <EmptyState title="No subscriptions match" action={{ label: 'Clear filters', onClick: () => { setFilter(''); setMethodFilter('all'); } }}>Nothing matches the current filters.</EmptyState>}
         {visibleSubs.map(s => (
           <article className={`card sub${selectMode && selected.has(s.id!) ? ' selected' : ''}`} key={s.id}>
             <div className="row">
@@ -647,10 +708,11 @@ export default function App() {
                 {selectMode && <input type="checkbox" className="sel" aria-label={`Select ${s.name}`} checked={selected.has(s.id!)} onChange={() => toggleOne(s.id!)} />}
                 <BrandLogo name={s.name} size={48} />
                 <div>
-                  <h3>{s.name} {s.isTrial && <span className="pill trial">trial</span>}{stateOf(s) !== 'active' && <span className={`pill st-${stateOf(s)}`}>{STATE_LABEL[stateOf(s)]}</span>}</h3>
+                  <h3>{s.name} {isSample(s) && <span className="pill sample-chip">Sample</span>}{s.isTrial && <span className="pill trial">trial</span>}{stateOf(s) !== 'active' && <span className={`pill st-${stateOf(s)}`}>{STATE_LABEL[stateOf(s)]}</span>}</h3>
                   <p className="muted">{s.category} · {CYCLE_LABEL[s.cycle].toLowerCase()} · next {s.nextRenewal} ({daysUntil(s.nextRenewal)}d)
                     {s.confidence !== undefined && <> · <span className={`conf conf-${confidenceLabel(s.confidence)}`} title={`Detected from a statement with ${Math.round(s.confidence * 100)}% confidence`}>{confidenceLabel(s.confidence)}</span></>}</p>
                   {s.priceCreep && <p className="creep">Price crept up: {money(s.priceCreep.from, s.currency)} → {money(s.priceCreep.to, s.currency)}</p>}
+                  {s.paymentMethod && <p className="muted"><span className="pill pay-chip"><span className="sr-only">Payment method: </span>{s.paymentMethod}</span></p>}
                   {s.notes && <p className="note-text"><span aria-hidden="true">📝 </span><span className="sr-only">Note: </span>{s.notes}</p>}
                 </div>
               </div>
@@ -676,6 +738,7 @@ export default function App() {
             onUsed={() => doBulk({ type: 'used', date: today() })}
             onMute={() => doBulk({ type: 'mute' })}
             onCancel={() => doBulk({ type: 'cancel' })}
+            onMethod={() => setMethodDialog(true)}
             onDelete={askBulkDelete}
             onSelectAll={() => setSelected(new Set(visibleSubs.map(x => x.id!)))}
             onClear={() => setSelected(new Set())}
@@ -703,6 +766,7 @@ export default function App() {
               ? <p className="error">Set an exchange rate for {subCurrency(detail, base)} to see what this costs in {base}. <button className="link" onClick={() => { setDetail(null); goToRates(); }}>Set rate</button></p>
               : <p className="muted">That's about {money(m)} a month, {money(m * 12)} a year{detail.isTrial ? ' once the trial converts' : ''}.</p>; })()}
           {detail.lastUsedAt && <p className="muted">You last marked this used on {detail.lastUsedAt}.</p>}
+          {detail.paymentMethod && <p className="muted">Paid with {detail.paymentMethod}.</p>}
           {detail.lastReviewedAt && <p className="muted">Last reviewed on {detail.lastReviewedAt}.</p>}
           {detail.notes && <p className="note-text"><b>Note:</b> {detail.notes}</p>}
           {(detail.priceHistory?.length ?? 0) > 1 && (
@@ -742,7 +806,7 @@ export default function App() {
       <ReminderSettings windows={settings.reminderDays} notifState={notifState} onToggle={setReminderDay} onAskPermission={askNotif} />
 
       <AppSettingsCard pwa={pwa} version={__APP_VERSION__} hasSubscriptions={subs.length > 0} sampleLoaded={settings.sampleIds.length > 0}
-        onInstall={installApp} onLoadSample={loadSample} onRemoveSample={removeSample} onShortcuts={() => setShowHelp(true)} onReview={startReview} />
+        onInstall={installApp} onLoadSample={() => loadSample()} onRemoveSample={removeSample} onShortcuts={() => setShowHelp(true)} onReview={startReview} onExportCsv={exportSubsCsv} onShowWelcome={showWelcomeAgain} />
 
       <section className="card">
         <h2>Backup</h2>
@@ -755,7 +819,9 @@ export default function App() {
       </section>
 
       {pendingBackup !== null && <RestorePreview text={pendingBackup} onRestore={restore} onClose={() => setPendingBackup(null)} />}
-      {quickAdd && <QuickAdd existing={subs} base={base} today={today()} categoryFor={guessCategory} onAdd={save}
+      {methodDialog && <MethodDialog count={selected.size} labels={methods.map(m => m.label)} onClose={() => setMethodDialog(false)}
+        onApply={label => { setMethodDialog(false); doBulk({ type: 'paymentMethod', label: canonicalLabel(label, subs) }); }} />}
+      {quickAdd && <QuickAdd existing={subs} labels={methods.map(m => m.label)} base={base} today={today()} categoryFor={guessCategory} onAdd={save}
         onMore={d => { setQuickAdd(false); setEditing(d); }} onClose={() => setQuickAdd(false)} />}
       {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
       {reviewQueue && <ReviewDialog queue={reviewQueue} money={money} onDecide={decideReview} onFinish={finishReview} />}
@@ -776,7 +842,7 @@ export default function App() {
       )}
       {cancelFor && <CancelFlow sub={cancelFor} onSave={f => startCancel(cancelFor, f)} onClose={() => setCancelFor(null)} onText={(title, text) => setTextModal({ title, text })} />}
       {textModal && <TextModal title={textModal.title} text={textModal.text} onClose={() => setTextModal(null)} />}
-      {editing && <EditForm sub={editing} base={base} onSave={save} onCancel={() => setEditing(null)} />}
+      {editing && <EditForm sub={editing} base={base} labels={methods.map(m => m.label)} onSave={save} onCancel={() => setEditing(null)} />}
       </main>
       {!selectMode && <button className="fab" onClick={() => setQuickAdd(true)}>+ Add subscription</button>}
       <footer><button className="link" onClick={() => setShowHelp(true)}>Keyboard shortcuts</button> · Local-only · no accounts · no tracking · logos are bundled, never fetched. Always confirm cancellation steps on the provider's site.</footer>
@@ -850,7 +916,7 @@ function Converted({ s, base, rates, money, onSetRate }: { s: Subscription; base
     : <small className="block">≈ {money(c)}</small>;
 }
 
-function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: string; onSave: (s: Subscription) => Promise<string | null> | void; onCancel: () => void }) {
+function EditForm({ sub, base, labels, onSave, onCancel }: { sub: Subscription; base: string; labels: string[]; onSave: (s: Subscription) => Promise<string | null> | void; onCancel: () => void }) {
   const [s, setS] = useState(sub);
   const [problem, setProblem] = useState('');
   const set = <K extends keyof Subscription>(k: K, v: Subscription[K]) => setS(p => ({ ...p, [k]: v }));
@@ -872,6 +938,7 @@ function EditForm({ sub, base, onSave, onCancel }: { sub: Subscription; base: st
         <label>Next renewal / trial end<input required type="date" value={s.nextRenewal} onChange={e => set('nextRenewal', e.target.value)} /></label>
         <label>Category
           <select value={s.category} onChange={e => set('category', e.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
+        <PaymentField value={s.paymentMethod ?? ''} onChange={v => set('paymentMethod', v)} labels={labels} />
         <label className="check"><input type="checkbox" checked={s.isTrial} onChange={e => set('isTrial', e.target.checked)} /> This is a free trial (remind me before it converts)</label>
         <label>Notes (optional)
           <textarea className="textbox" rows={3} maxLength={NOTES_MAX} value={s.notes ?? ''} aria-describedby="notes-count" onChange={e => set('notes', e.target.value)} /></label>

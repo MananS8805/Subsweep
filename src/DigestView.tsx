@@ -1,6 +1,7 @@
 import type { Digest as DigestData } from './digest';
 import type { Subscription } from './types';
 import BrandLogo from './BrandLogo';
+import EmptyState from './EmptyState';
 
 interface Props {
   digest: DigestData;
@@ -9,6 +10,7 @@ interface Props {
   onOpen: (s: Subscription) => void;
   onCopy: () => void;
   onPrint: () => void;
+  onCsv: () => void;
   onSetRates: () => void;
 }
 
@@ -16,7 +18,7 @@ const day = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString(und
 const shortDay = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 /** Everything that will be charged in the next 30 days, by week, with the total in your base currency. */
-export default function DigestView({ digest: d, subs, money, onOpen, onCopy, onPrint, onSetRates }: Props) {
+export default function DigestView({ digest: d, subs, money, onOpen, onCopy, onPrint, onCsv, onSetRates }: Props) {
   const byId = new Map(subs.map(s => [s.id, s]));
   const name = (id: number) => byId.get(id)?.name ?? 'Subscription';
   const nothing = d.payments.length === 0 && d.trialsEnding.length === 0;
@@ -27,12 +29,13 @@ export default function DigestView({ digest: d, subs, money, onOpen, onCopy, onP
         <h2 id="digest-title">Next {d.days} days · {shortDay(d.from)} to {shortDay(d.to)}</h2>
         <div className="actions">
           <button className="btn" onClick={onCopy}>Copy summary</button>
+          <button className="btn" onClick={onCsv}>Export CSV</button>
           <button className="btn" onClick={onPrint}>Print</button>
         </div>
       </div>
 
       {nothing ? (
-        <p className="empty">Nothing is due in the next {d.days} days. Enjoy the quiet.</p>
+        <EmptyState title={`Nothing is due in the next ${d.days} days`}>Renewals and trial endings will appear here as they come within {d.days} days.</EmptyState>
       ) : (
         <>
           <div className="summary">

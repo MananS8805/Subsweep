@@ -17,6 +17,7 @@ export interface Subscription {
   confidence?: number;     // 0..1, how sure detection was when this came from a statement
   importBatchId?: string;  // set on rows added by one statement import, so that import can be undone
   muted?: boolean;         // no renewal reminders for this one
+  paymentMethod?: string;  // a nickname such as "Visa ending 4242" (never a card number), max 40 characters
   lastReviewedAt?: string; // YYYY-MM-DD, set by the monthly review or "Mark reviewed"
   snoozedUntil?: string;   // YYYY-MM-DD: no reminders until this local date
   currency?: string;          // ISO 4217; absent means the base currency

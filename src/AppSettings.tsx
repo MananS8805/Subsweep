@@ -10,10 +10,12 @@ interface Props {
   onRemoveSample: () => void;
   onShortcuts: () => void;
   onReview: () => void;
+  onExportCsv: () => void;
+  onShowWelcome: () => void;
 }
 
 /** App-level settings: install, offline status, version and the demo data. */
-export default function AppSettingsCard({ pwa, version, hasSubscriptions, sampleLoaded, onInstall, onLoadSample, onRemoveSample, onShortcuts, onReview }: Props) {
+export default function AppSettingsCard({ pwa, version, hasSubscriptions, sampleLoaded, onInstall, onLoadSample, onRemoveSample, onShortcuts, onReview, onExportCsv, onShowWelcome }: Props) {
   return (
     <section className="card" id="app-settings" aria-labelledby="app-settings-title">
       <h2 id="app-settings-title">App</h2>
@@ -37,6 +39,14 @@ export default function AppSettingsCard({ pwa, version, hasSubscriptions, sample
         <button className="btn" onClick={onShortcuts}>Keyboard shortcuts</button>
         <button className="btn" onClick={onReview}>Start monthly review</button>
       </div>
+
+      <h3 className="sub-h">Export</h3>
+      <p className="muted">Subscriptions as a spreadsheet-friendly CSV file, saved on your device.</p>
+      <div className="actions"><button className="btn" onClick={onExportCsv}>Export CSV</button></div>
+
+      <h3 className="sub-h">Welcome</h3>
+      <div className="actions"><button className="btn" onClick={onShowWelcome}>Show welcome again</button></div>
+      <p className="muted"><small>The welcome panel appears when you have no subscriptions.</small></p>
 
       <h3 className="sub-h">Sample data</h3>
       {sampleLoaded ? (

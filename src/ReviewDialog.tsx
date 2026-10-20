@@ -28,7 +28,12 @@ export default function ReviewDialog({ queue, money, onDecide, onFinish }: Props
 
   return (
     <Modal title="Monthly review" onClose={() => onFinish(counts)}>
-      {done ? (
+      {queue.length === 0 ? (
+        <>
+          <p role="status"><b>Nothing to review.</b> Every subscription was reviewed in the last 30 days.</p>
+          <div className="row-actions"><button className="btn primary" onClick={() => onFinish(counts)}>Close</button></div>
+        </>
+      ) : done ? (
         <>
           <p role="status"><b>Review finished.</b> Kept {counts.keep}, marked {counts.cancel} to cancel, skipped {counts.skip}.</p>
           {counts.cancel > 0 && <p className="muted">The ones you marked appear in the Yearly view, where you can see what cancelling would save.</p>}

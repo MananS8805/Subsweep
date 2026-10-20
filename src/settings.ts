@@ -10,10 +10,11 @@ export interface AppSettings {
   sampleIds: number[]; // rows added by "Load sample data"
   reminderDays: number[]; // days before a renewal to remind, any of 1, 3, 7
   reminderBannerDismissed: boolean; // the "notifications are blocked" note was closed
+  onboardingDismissed: boolean; // the welcome panel was skipped, or the first subscription was added
   reviewPromptDismissedUntil: string; // YYYY-MM-DD: the monthly review card stays hidden until this day (empty = not snoozed)
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { baseCurrency: DEFAULT_BASE, rates: {}, ratesNeedReview: false, dismissedInsights: [], sampleIds: [], reminderDays: [...DEFAULT_REMINDER_DAYS], reminderBannerDismissed: false, reviewPromptDismissedUntil: '' };
+export const DEFAULT_SETTINGS: AppSettings = { baseCurrency: DEFAULT_BASE, rates: {}, ratesNeedReview: false, dismissedInsights: [], sampleIds: [], reminderDays: [...DEFAULT_REMINDER_DAYS], reminderBannerDismissed: false, onboardingDismissed: false, reviewPromptDismissedUntil: '' };
 
 /** Read settings defensively: anything missing or malformed (old data, a hand-edited backup) falls back to defaults. */
 export async function loadSettings(): Promise<AppSettings> {
@@ -28,6 +29,7 @@ export async function loadSettings(): Promise<AppSettings> {
     dismissedInsights: Array.isArray(dismissed) ? dismissed.filter((x): x is string => typeof x === 'string') : [],
     reminderDays: rows.has('reminderDays') ? normalizeWindows(rows.get('reminderDays')) : [...DEFAULT_REMINDER_DAYS],
     reminderBannerDismissed: rows.get('reminderBannerDismissed') === true,
+    onboardingDismissed: rows.get('onboardingDismissed') === true,
     reviewPromptDismissedUntil: typeof rows.get('reviewPromptDismissedUntil') === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rows.get('reviewPromptDismissedUntil') as string) ? (rows.get('reviewPromptDismissedUntil') as string) : '',
     sampleIds: Array.isArray(sample) ? sample.filter((x): x is number => Number.isInteger(x) && x > 0) : [],
   };

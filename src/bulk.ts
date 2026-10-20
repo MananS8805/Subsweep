@@ -6,12 +6,13 @@ export type BulkAction =
   | { type: 'used'; date: string }      // "Mark used recently"
   | { type: 'mute' }                    // mute reminders
   | { type: 'cancel' }                  // tick "Cancel?" for the savings simulator
+  | { type: 'paymentMethod'; label: string } // already normalised and validated by the caller
   | { type: 'delete' };
 
 type Field = keyof Subscription;
 
 export const BULK_LABEL: Record<BulkAction['type'], string> = {
-  category: 'Changed category', used: 'Marked used recently', mute: 'Muted reminders', cancel: 'Marked Cancel?', delete: 'Deleted',
+  category: 'Changed category', used: 'Marked used recently', mute: 'Muted reminders', cancel: 'Marked Cancel?', paymentMethod: 'Set payment method', delete: 'Deleted',
 };
 
 /** The subscription fields an action writes (and so the only ones undo has to put back). */
@@ -21,6 +22,7 @@ export function touchedFields(a: BulkAction): Field[] {
     case 'used': return ['lastUsedAt'];
     case 'mute': return ['muted'];
     case 'cancel': return ['selectedForCancel'];
+    case 'paymentMethod': return ['paymentMethod'];
     case 'delete': return [];
   }
 }
@@ -32,6 +34,7 @@ export function patchFor(a: BulkAction): Partial<Subscription> | null {
     case 'used': return { lastUsedAt: a.date };
     case 'mute': return { muted: true };
     case 'cancel': return { selectedForCancel: true };
+    case 'paymentMethod': return { paymentMethod: a.label };
     case 'delete': return null;
   }
 }
@@ -138,6 +141,7 @@ export function doneMessage(action: BulkAction, changed: number): string {
     : action.type === 'delete' ? `Deleted ${what}.`
       : action.type === 'used' ? `Marked ${what} as used recently.`
         : action.type === 'mute' ? `Muted reminders for ${what}.`
+          : action.type === 'paymentMethod' ? `Set payment method to ${action.label} for ${what}.`
           : `Marked ${what} Cancel?.`;
 }
 

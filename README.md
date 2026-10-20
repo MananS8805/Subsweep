@@ -19,6 +19,9 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 - Bulk actions: select several subscriptions to set a category, mark used, mute, mark Cancel? or delete, each with Undo
 - A price-history chart for any subscription whose price has changed, with a text alternative for screen readers
 - A "Next 30 days" view of everything about to be charged, by week, with a copyable summary and a print layout
+- A first-run welcome panel, clearly labelled sample data you can remove with Undo, and helpful empty states
+- Payment method nicknames (never card numbers) with a filter and a per-method monthly breakdown
+- CSV export of your subscriptions and of the next 30 days, safe to open in Excel or Sheets
 - JSON backup and restore (Merge or Replace) that includes your settings, with a preview of exactly what a restore will change
 - Keyboard shortcuts and a quick-add dialog, a name filter, and notes on every subscription
 - A monthly review that walks through what you have not looked at in 30 days (Keep, Cancel? or Skip)
@@ -46,8 +49,10 @@ Find, understand and get out of forgotten subscriptions. SubSweep reads your ban
 | ![30-day digest](docs/screenshots/digest.png) | <img src="docs/screenshots/mobile-digest.png" alt="Phone: the 30-day digest" width="260"> |
 | **Restore preview.** See what a restore will add, skip or change before anything is written. | **Monthly review.** Keep, Cancel? or Skip, one at a time. |
 | ![Restore preview](docs/screenshots/restore-preview.png) | ![Monthly review](docs/screenshots/review.png) |
-| **Keyboard shortcuts.** The cheat sheet, also on `?`. | |
-| ![Keyboard shortcuts](docs/screenshots/shortcuts.png) | |
+| **Keyboard shortcuts.** The cheat sheet, also on `?`. | **Welcome.** Three ways to start, and a plain privacy line. |
+| ![Keyboard shortcuts](docs/screenshots/shortcuts.png) | ![Welcome panel](docs/screenshots/welcome.png) |
+| **By payment method.** What each card or account pays per month. | |
+| ![Payment method breakdown](docs/screenshots/payment-breakdown.png) | |
 | **Settings.** Base currency, manual rates, install, sample data. | **Light theme.** Follows your system setting. |
 | ![Settings](docs/screenshots/desktop-settings.png) | ![Light theme](docs/screenshots/light-theme.png) |
 
@@ -92,6 +97,7 @@ node scripts/verify-update.mjs                # service worker update flow (bann
 node scripts/verify-features.mjs              # import preview and undo, reminders (windows, mute, snooze, no duplicates), upgrade, backup, offline
 node scripts/verify-bulk.mjs                  # bulk actions and undo, price chart, 30-day digest (checked against hand-computed totals), offline
 node scripts/verify-workflow.mjs              # settings in backups and the restore preview, shortcuts and quick-add, notes and monthly review, offline
+node scripts/verify-data.mjs                  # payment methods, CSV export (parsed back), onboarding and sample data, empty states, offline
 npm run screenshots                           # regenerate docs/screenshots
 npm run icons                                 # re-render the PNG icons from public/icon.svg
 npm run contrast                              # print the contrast ratios for the colour tokens
@@ -173,6 +179,22 @@ Cancelled items stay on the board but are excluded from totals, reminders and th
 - The preview lists each setting that differs ("Will change" or "Kept as it is"). Malformed settings, such as a negative exchange rate or a bad currency code, are shown as warnings and never applied; settings this version does not know are ignored.
 
 Files are validated completely before anything is written, and the restore is a single transaction. Wrong-app files, newer formats and malformed JSON are rejected with a message and your data is left untouched. Backups never leave your device.
+
+## Payment methods
+Give a subscription an optional nickname for how it is paid, such as "Visa ending 4242" or "UPI". Suggestions come from the labels you already use, and "Visa 4242" and "visa 4242 " count as the same label (the first spelling wins). **Never enter a full card number**: anything that looks like 13 to 19 digits is refused with a message, and is dropped from imported backups too. The list can be filtered by payment method (combined with the name search), a **By payment method** card shows the monthly cost per label (subscriptions in a currency with no exchange rate are listed as "rate needed" rather than counted as zero), and **Set payment method** in select mode labels many at once with Undo.
+
+## CSV export
+**Export CSV** in Settings saves your subscriptions, and the same button on **Next 30 days** saves what is due, as `subsweep-subscriptions-YYYY-MM-DD.csv` and `subsweep-next30-YYYY-MM-DD.csv` (your local date). Nothing is uploaded.
+
+| File | Columns |
+| --- | --- |
+| Subscriptions | `name, category, amount, currency, cycle, next_renewal, monthly_base, yearly_base, base_currency, payment_method, trial, cancel_flag, muted, last_reviewed, notes` |
+| Next 30 days | `date, name, amount_base, base_currency, week_start, status` (`normal`, `muted`, `trial` or `rate_needed`) |
+
+Files are UTF-8 with a byte order mark so Excel shows non-ASCII names correctly, quoted per RFC 4180, with money as `1234.50`. A charge in a currency with no exchange rate leaves `monthly_base` or `amount_base` empty instead of writing 0. Text starting with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'` so a spreadsheet will not run it as a formula. Sample data is never exported, and with nothing to export you get a message instead of an empty file.
+
+## First run and sample data
+With no subscriptions SubSweep shows a welcome panel: scan a bank statement CSV, add one manually, or try the sample data. The sample set is fake, every card carries a **Sample** chip, a banner stays visible while any of it exists, and **Remove sample data** (with Undo) deletes only those rows. Sample data can only be loaded into an empty SubSweep, and is left out of backups and CSV exports. The panel is dismissed for good when you add, import or restore anything or press **Skip**; **Show welcome again** in Settings brings it back for an empty SubSweep.
 
 ## Keyboard shortcuts
 Press `?` any time for the list. They work when you are not typing in a field and no dialog is open.

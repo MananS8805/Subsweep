@@ -101,7 +101,9 @@ export function mergeSubscriptions(group: Subscription[]): { keep: Subscription;
     priceCreep: newest.priceCreep ?? oldest.priceCreep ?? null,
     category: sorted.find(s => s.category && s.category !== 'Other')?.category ?? oldest.category,
     notes: sorted.find(s => s.notes?.trim())?.notes,
+    paymentMethod: sorted.find(s => s.paymentMethod?.trim())?.paymentMethod,
   };
+  if (keep.paymentMethod === undefined) delete keep.paymentMethod;
   if (oldest.createdAt) keep.createdAt = oldest.createdAt;
   else delete keep.createdAt;
   if (merged.length > 1) keep.priceHistory = merged;

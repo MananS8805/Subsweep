@@ -2,9 +2,12 @@ import { useState } from 'react';
 import Modal from './Modal';
 import { CYCLES, CYCLE_LABEL, type Cycle, type Subscription } from './types';
 import { findLookalike, validateSubscription } from './validate';
+import PaymentField from './PaymentField';
+import { canonicalLabel, normalizeLabel } from './paymentMethods';
 
 interface Props {
   existing: Subscription[];
+  labels: string[];
   base: string;
   today: string;
   categoryFor: (name: string) => string;
@@ -14,20 +17,21 @@ interface Props {
 }
 
 /** The fastest way to add one: name, price, cycle, next date. Everything else can be filled in later. */
-export default function QuickAdd({ existing, base, today, categoryFor, onAdd, onMore, onClose }: Props) {
+export default function QuickAdd({ existing, labels, base, today, categoryFor, onAdd, onMore, onClose }: Props) {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [cycle, setCycle] = useState<Cycle>('monthly');
   const [next, setNext] = useState(today);
+  const [method, setMethod] = useState('');
   const [error, setError] = useState('');
   const [warned, setWarned] = useState<Subscription | null>(null);
 
-  const draft = (): Subscription => ({ name: name.trim(), amount: Number(amount), cycle, nextRenewal: next, category: categoryFor(name), isTrial: false, currency: base });
+  const draft = (): Subscription => ({ name: name.trim(), amount: Number(amount), cycle, nextRenewal: next, category: categoryFor(name), isTrial: false, currency: base, ...(normalizeLabel(method) ? { paymentMethod: canonicalLabel(method, existing) } : {}) });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const d = draft();
-    const problem = validateSubscription(d);
+    const problem = validateSubscription({ ...d, paymentMethod: method });
     if (problem) { setError(problem); setWarned(null); return; }
     const twin = findLookalike(d, existing);
     if (twin && warned?.id !== twin.id) { setWarned(twin); setError(''); return; }
@@ -44,6 +48,7 @@ export default function QuickAdd({ existing, base, today, categoryFor, onAdd, on
             <select value={cycle} onChange={e => setCycle(e.target.value as Cycle)}>{CYCLES.map(c => <option key={c} value={c}>{CYCLE_LABEL[c]}</option>)}</select></label>
         </div>
         <label>Next renewal<input type="date" value={next} onChange={e => setNext(e.target.value)} /></label>
+        <PaymentField value={method} onChange={setMethod} labels={labels} />
         <div aria-live="assertive">
           {error && <p className="error" role="alert">{error}</p>}
           {warned && <p className="notice" role="alert">You already track <b>{warned.name}</b> at a similar price. Add it anyway?</p>}

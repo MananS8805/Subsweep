@@ -7,13 +7,14 @@ interface Props {
   onUsed: () => void;
   onMute: () => void;
   onCancel: () => void;   // "Mark Cancel?"
+  onMethod: () => void;   // opens the payment-method dialog
   onDelete: () => void;
   onSelectAll: () => void;
   onClear: () => void;
 }
 
 /** The action bar for select mode. Every action needs a selection, so with nothing selected they are all disabled. */
-export default function BulkBar({ count, visible, onCategory, onUsed, onMute, onCancel, onDelete, onSelectAll, onClear }: Props) {
+export default function BulkBar({ count, visible, onCategory, onUsed, onMute, onCancel, onMethod, onDelete, onSelectAll, onClear }: Props) {
   const none = count === 0;
   return (
     <div className="bulk-bar" id="bulk-bar" role="toolbar" aria-label="Bulk actions" tabIndex={-1}>
@@ -25,6 +26,7 @@ export default function BulkBar({ count, visible, onCategory, onUsed, onMute, on
       <button className="btn" disabled={none} onClick={onUsed}>Mark used recently</button>
       <button className="btn" disabled={none} onClick={onMute}>Mute reminders</button>
       <button className="btn" disabled={none} onClick={onCancel}>Mark Cancel?</button>
+      <button className="btn" disabled={none} onClick={onMethod}>Set payment method</button>
       <button className="btn danger-btn" disabled={none} onClick={onDelete}>Delete</button>
       <span className="bulk-sep" aria-hidden="true" />
       <button className="btn" disabled={visible === 0 || count === visible} onClick={onSelectAll}>Select all ({visible})</button>

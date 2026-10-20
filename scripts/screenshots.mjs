@@ -186,6 +186,32 @@ async function viewportAt(page, file, selector, offset = 12) {
   await context.close();
 }
 
+// ---------------- v0.9: welcome panel, payment methods
+{
+  const { page, context } = await open({ sample: false });
+  await page.waitForSelector('.welcome');
+  await page.locator('.welcome').screenshot({ path: out('welcome.png') });
+  await context.close();
+}
+{
+  const { page, context } = await open({ sample: false });
+  const tmp = mkdtempSync(join(tmpdir(), 'subsweep-shots-'));
+  const day = (n) => { const d = new Date(Date.now() + n * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const row = (id, name, amount, extra = {}) => ({ id, name, amount, currency: 'INR', cycle: 'monthly', nextRenewal: day(id * 4), category: 'Streaming', isTrial: false, lastReviewedAt: day(0), ...extra });
+  const f = join(tmp, 'pm.json');
+  writeFileSync(f, JSON.stringify({ app: 'subsweep', version: 2, exportedAt: new Date().toISOString(), dismissedDuplicates: [], settings: { baseCurrency: 'INR', rates: { USD: 83 } },
+    subscriptions: [row(1, 'Netflix', 649, { paymentMethod: 'Visa ending 4242' }), row(2, 'Spotify', 119, { paymentMethod: 'UPI' }), row(3, 'Gym', 1500, { paymentMethod: 'Visa ending 4242' }),
+                    row(4, 'iCloud', 75, { paymentMethod: 'UPI' }), row(5, 'Dropbox', 11.99, { currency: 'USD' }), row(6, 'Hotstar', 299)] }));
+  await page.locator('input[type=file][accept*=json]').setInputFiles(f);
+  await page.getByRole('dialog').waitFor();
+  await page.getByRole('button', { name: 'Merge into my data' }).click();
+  await page.waitForSelector('[role=dialog]', { state: 'detached' });
+  await tab(page, 'List');
+  await page.waitForTimeout(500);
+  await page.locator('#by-method-title').locator('xpath=..').screenshot({ path: out('payment-breakdown.png') });
+  await context.close();
+}
+
 // ---------------- phone (390 x 844)
 {
   const { page, context } = await open({ width: 390, height: 844, scale: 3, mobile: true });
